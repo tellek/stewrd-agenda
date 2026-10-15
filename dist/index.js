@@ -236,13 +236,15 @@ function Component({ api: api2 }) {
               setDragId(null);
             },
             onDragEnd: () => setDragId(null),
-            children: tab.name
+            children: /* @__PURE__ */ jsxs("span", { style: { display: "inline-flex", alignItems: "center", gap: 6 }, children: [
+              /* @__PURE__ */ jsx(StatusDot, { color: statusFor(topPriority(data.items.filter((i) => i.tabId === tab.id))) }),
+              tab.name
+            ] })
           },
           tab.id
         )),
         /* @__PURE__ */ jsx(TextButton, { label: "+", bordered: false, onClick: () => setDialog({ kind: "add-tab" }) })
       ] }),
-      /* @__PURE__ */ jsx(StatusDot, { color: statusFor(topPriority(tabItems)) }),
       /* @__PURE__ */ jsx(TextButton, { label: "Add Item", variant: "primary", onClick: () => setDialog({ kind: "add-item" }) })
     ] }),
     /* @__PURE__ */ jsxs("div", { style: { flex: 1, minHeight: 0, overflow: "auto", scrollbarWidth: "thin", scrollbarColor: `${palette.border} ${palette.surface}` }, children: [

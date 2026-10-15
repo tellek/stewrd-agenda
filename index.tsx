@@ -86,12 +86,14 @@ export function Component({ api }: { api: PluginApi }) {
               }}
               onDragEnd={() => setDragId(null)}
             >
-              {tab.name}
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                <StatusDot color={statusFor(topPriority(data.items.filter((i) => i.tabId === tab.id)))} />
+                {tab.name}
+              </span>
             </div>
           ))}
           <TextButton label="+" bordered={false} onClick={() => setDialog({ kind: "add-tab" })} />
         </div>
-        <StatusDot color={statusFor(topPriority(tabItems))} />
         <TextButton label="Add Item" variant="primary" onClick={() => setDialog({ kind: "add-item" })} />
       </div>
 
