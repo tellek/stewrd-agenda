@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { CSSProperties } from "react";
 import type { PluginApi, PluginContext } from "stewrd-plugin-api";
 import { PRIORITIES, moveTab, priorityLabel, setDone, setPriority, sortActive, sortDone, statusFor, topPriority } from "./model.ts";
@@ -28,6 +28,7 @@ export function Component({ api }: { api: PluginApi }) {
   const { TextButton, StatusDot } = api.ui;
   const [dialog, setDialog] = useState<Dialog>(null);
   const [dragId, setDragId] = useState<string | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
   const [, setThemeVersion] = useState(0); // re-render on theme switches
 
   useEffect(() => {
@@ -58,7 +59,7 @@ export function Component({ api }: { api: PluginApi }) {
   };
 
   return (
-    <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", gap: 8, position: "relative" }}>
+    <div ref={rootRef} style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", gap: 8, position: "relative" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, borderBottom: `1px solid ${palette.border}` }}>
         <div style={{ display: "flex", alignItems: "center", flex: 1, minWidth: 0, overflowX: "auto" }}>
           {data.tabs.map((tab) => (
@@ -131,7 +132,7 @@ export function Component({ api }: { api: PluginApi }) {
           onSave={(name) => update((d) => ({ ...d, tabs: d.tabs.map((t) => (t.id === dialog.id ? { ...t, name } : t)) }))}
         />
       )}
-      {dialog?.kind === "add-item" && <ItemDialog api={api} tabId={activeTabId} onClose={() => setDialog(null)} />}
+      {dialog?.kind === "add-item" && <ItemDialog api={api} tabId={activeTabId} width={Math.round((rootRef.current?.clientWidth ?? 0) / 2) - 34} onClose={() => setDialog(null)} />}
     </div>
   );
 }
@@ -157,7 +158,7 @@ function NameDialog(props: { api: PluginApi; title: string; initial: string; onC
   );
 }
 
-function ItemDialog({ api, tabId, onClose }: { api: PluginApi; tabId: string; onClose: () => void }) {
+function ItemDialog({ api, tabId, width, onClose }: { api: PluginApi; tabId: string; width: number; onClose: () => void }) {
   const { TextBox, TextButton, InlineDialog, Dropdown } = api.ui;
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -173,7 +174,7 @@ function ItemDialog({ api, tabId, onClose }: { api: PluginApi; tabId: string; on
   };
   return (
     <InlineDialog open title="Add Item" onClose={onClose}>
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, width }}>
         <div onKeyDown={(e) => e.key === "Enter" && add()}>
           <TextBox singleLine value={title} onChange={setTitle} placeholder="Title" />
         </div>
@@ -209,12 +210,6 @@ function Row({ api, item }: { api: PluginApi; item: Item }) {
   return (
     <div style={{ padding: "4px 8px", borderBottom: `1px solid ${palette.border}`, color: item.done ? palette.textMuted : palette.text }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, minHeight: 32 }}>
-        <Checkbox
-          checked={item.done}
-          onChange={(checked) =>
-            update((d) => ({ ...d, items: d.items.map((i) => (i.id === item.id ? setDone(i, checked, Date.now()) : i)) }))
-          }
-        />
         {item.done ? (
           dot
         ) : (
@@ -223,17 +218,31 @@ function Row({ api, item }: { api: PluginApi; item: Item }) {
             items={PRIORITIES.slice().reverse().map((p) => ({ label: priorityLabel[p], onClick: () => changePriority(p) }))}
           />
         )}
-        <div style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: item.done ? "line-through" : undefined }}>
-          {item.title}
-        </div>
+        <Checkbox
+          checked={item.done}
+          onChange={(checked) =>
+            update((d) => ({ ...d, items: d.items.map((i) => (i.id === item.id ? setDone(i, checked, Date.now()) : i)) }))
+          }
+        />
+        {open ? (
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <TextBox singleLine value={item.title} onChange={(title) => patch({ title })} placeholder="Title" />
+          </div>
+        ) : (
+          <div style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: item.done ? "line-through" : undefined }}>
+            {item.title}
+          </div>
+        )}
         <TextButton label={open ? "▴" : "▾"} bordered={false} onClick={() => setOpen(!open)} />
       </div>
       {open && (
         <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "4px 0 8px" }}>
-          <TextBox singleLine value={item.title} onChange={(title) => patch({ title })} placeholder="Title" />
           <TextBox rows={4} value={item.description} onChange={(description) => patch({ description })} placeholder="Description" />
           <div style={{ display: "flex", gap: 8, alignItems: "center", justifyContent: "space-between" }}>
-            <Dropdown options={priorityOptions} value={item.priority} onChange={(v) => changePriority(v as Priority)} />
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <span>Priority: </span>
+              <Dropdown options={priorityOptions} value={item.priority} onChange={(v) => changePriority(v as Priority)} />
+            </div>
             <TextButton label="Delete" variant="secondary" onClick={remove} />
           </div>
         </div>

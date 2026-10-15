@@ -1,5 +1,5 @@
 // index.tsx
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 // model.ts
 var DAY = 24 * 60 * 60 * 1e3;
@@ -17,7 +17,7 @@ var STATUS = {
   high: "error"
 };
 var priorityLabel = {
-  none: "None",
+  none: "No Priority",
   normal: "Normal",
   medium: "Medium",
   high: "High"
@@ -185,6 +185,7 @@ function Component({ api: api2 }) {
   const { TextButton, StatusDot } = api2.ui;
   const [dialog, setDialog] = useState(null);
   const [dragId, setDragId] = useState(null);
+  const rootRef = useRef(null);
   const [, setThemeVersion] = useState(0);
   useEffect(() => {
     setViewing(true);
@@ -209,7 +210,7 @@ function Component({ api: api2 }) {
     e.preventDefault();
     e.stopPropagation();
   };
-  return /* @__PURE__ */ jsxs("div", { style: { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", gap: 8, position: "relative" }, children: [
+  return /* @__PURE__ */ jsxs("div", { ref: rootRef, style: { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", gap: 8, position: "relative" }, children: [
     /* @__PURE__ */ jsxs("div", { style: { display: "flex", alignItems: "center", gap: 8, borderBottom: `1px solid ${palette.border}` }, children: [
       /* @__PURE__ */ jsxs("div", { style: { display: "flex", alignItems: "center", flex: 1, minWidth: 0, overflowX: "auto" }, children: [
         data.tabs.map((tab) => /* @__PURE__ */ jsx(
@@ -276,7 +277,7 @@ function Component({ api: api2 }) {
         onSave: (name) => update((d) => ({ ...d, tabs: d.tabs.map((t) => t.id === dialog.id ? { ...t, name } : t) }))
       }
     ),
-    dialog?.kind === "add-item" && /* @__PURE__ */ jsx(ItemDialog, { api: api2, tabId: activeTabId, onClose: () => setDialog(null) })
+    dialog?.kind === "add-item" && /* @__PURE__ */ jsx(ItemDialog, { api: api2, tabId: activeTabId, width: Math.round((rootRef.current?.clientWidth ?? 0) / 2) - 34, onClose: () => setDialog(null) })
   ] });
 }
 function NameDialog(props) {
@@ -295,7 +296,7 @@ function NameDialog(props) {
     ] })
   ] }) });
 }
-function ItemDialog({ api: api2, tabId, onClose }) {
+function ItemDialog({ api: api2, tabId, width, onClose }) {
   const { TextBox, TextButton, InlineDialog, Dropdown } = api2.ui;
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -309,7 +310,7 @@ function ItemDialog({ api: api2, tabId, onClose }) {
     }));
     onClose();
   };
-  return /* @__PURE__ */ jsx(InlineDialog, { open: true, title: "Add Item", onClose, children: /* @__PURE__ */ jsxs("div", { style: { display: "flex", flexDirection: "column", gap: 8 }, children: [
+  return /* @__PURE__ */ jsx(InlineDialog, { open: true, title: "Add Item", onClose, children: /* @__PURE__ */ jsxs("div", { style: { display: "flex", flexDirection: "column", gap: 8, width }, children: [
     /* @__PURE__ */ jsx("div", { onKeyDown: (e) => e.key === "Enter" && add(), children: /* @__PURE__ */ jsx(TextBox, { singleLine: true, value: title, onChange: setTitle, placeholder: "Title" }) }),
     /* @__PURE__ */ jsx(TextBox, { rows: 4, value: description, onChange: setDescription, placeholder: "Description (Optional)" }),
     /* @__PURE__ */ jsx(Dropdown, { options: priorityOptions, value: priority, onChange: (v) => setPriorityValue(v) }),
@@ -336,13 +337,6 @@ function Row({ api: api2, item }) {
   const dot = /* @__PURE__ */ jsx(StatusDot, { color: statusFor(item.priority) });
   return /* @__PURE__ */ jsxs("div", { style: { padding: "4px 8px", borderBottom: `1px solid ${palette.border}`, color: item.done ? palette.textMuted : palette.text }, children: [
     /* @__PURE__ */ jsxs("div", { style: { display: "flex", alignItems: "center", gap: 8, minHeight: 32 }, children: [
-      /* @__PURE__ */ jsx(
-        Checkbox,
-        {
-          checked: item.done,
-          onChange: (checked) => update((d) => ({ ...d, items: d.items.map((i) => i.id === item.id ? setDone(i, checked, Date.now()) : i) }))
-        }
-      ),
       item.done ? dot : /* @__PURE__ */ jsx(
         Menu,
         {
@@ -350,14 +344,23 @@ function Row({ api: api2, item }) {
           items: PRIORITIES.slice().reverse().map((p) => ({ label: priorityLabel[p], onClick: () => changePriority(p) }))
         }
       ),
-      /* @__PURE__ */ jsx("div", { style: { flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: item.done ? "line-through" : void 0 }, children: item.title }),
+      /* @__PURE__ */ jsx(
+        Checkbox,
+        {
+          checked: item.done,
+          onChange: (checked) => update((d) => ({ ...d, items: d.items.map((i) => i.id === item.id ? setDone(i, checked, Date.now()) : i) }))
+        }
+      ),
+      open ? /* @__PURE__ */ jsx("div", { style: { flex: 1, minWidth: 0 }, children: /* @__PURE__ */ jsx(TextBox, { singleLine: true, value: item.title, onChange: (title) => patch({ title }), placeholder: "Title" }) }) : /* @__PURE__ */ jsx("div", { style: { flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: item.done ? "line-through" : void 0 }, children: item.title }),
       /* @__PURE__ */ jsx(TextButton, { label: open ? "\u25B4" : "\u25BE", bordered: false, onClick: () => setOpen(!open) })
     ] }),
     open && /* @__PURE__ */ jsxs("div", { style: { display: "flex", flexDirection: "column", gap: 8, padding: "4px 0 8px" }, children: [
-      /* @__PURE__ */ jsx(TextBox, { singleLine: true, value: item.title, onChange: (title) => patch({ title }), placeholder: "Title" }),
       /* @__PURE__ */ jsx(TextBox, { rows: 4, value: item.description, onChange: (description) => patch({ description }), placeholder: "Description" }),
       /* @__PURE__ */ jsxs("div", { style: { display: "flex", gap: 8, alignItems: "center", justifyContent: "space-between" }, children: [
-        /* @__PURE__ */ jsx(Dropdown, { options: priorityOptions, value: item.priority, onChange: (v) => changePriority(v) }),
+        /* @__PURE__ */ jsxs("div", { style: { display: "flex", gap: 8, alignItems: "center" }, children: [
+          /* @__PURE__ */ jsx("span", { children: "Priority: " }),
+          /* @__PURE__ */ jsx(Dropdown, { options: priorityOptions, value: item.priority, onChange: (v) => changePriority(v) })
+        ] }),
         /* @__PURE__ */ jsx(TextButton, { label: "Delete", variant: "secondary", onClick: remove })
       ] })
     ] })

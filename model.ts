@@ -44,7 +44,7 @@ const STATUS: Record<Priority, StatusColor> = {
 };
 
 export const priorityLabel: Record<Priority, string> = {
-  none: "None",
+  none: "No Priority",
   normal: "Normal",
   medium: "Medium",
   high: "High",
