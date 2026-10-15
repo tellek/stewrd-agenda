@@ -1,0 +1,11 @@
+{
+  "id": "agenda",
+  "name": "Agenda",
+  "version": "1.0.0",
+  "category": "Utilities",
+  "icon": "default",
+  "entry": "dist/index.js",
+  "description": "Tabbed to-do and agenda lists with auto-escalating priorities",
+  "apiVersion": "1",
+  "background": true
+}
