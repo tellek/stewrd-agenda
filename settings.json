@@ -1,7 +1,13 @@
 {
   "category": "Utilities",
   "version": "1.0.1",
+
+  "_completedRetentionDays": "Days a completed item is kept before it is deleted. Any number, 0 deletes immediately.",
   "completedRetentionDays": 30,
+
+  "_reportedPriorities": "Priorities that color the sidebar icon and tab dots. Any of: none, normal, medium, high.",
   "reportedPriorities": ["normal", "medium", "high"],
+
+  "_sortAfterPriority": "Order of items within the same priority. One of: createdAsc (oldest first), createdDesc (newest first), titleAsc (A to Z), titleDesc (Z to A).",
   "sortAfterPriority": "createdAsc"
 }
