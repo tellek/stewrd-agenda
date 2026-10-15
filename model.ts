@@ -34,7 +34,23 @@ const ESCALATION: Partial<Record<Priority, [Priority, number]>> = {
   normal: ["medium", 7 * DAY],
   medium: ["high", DAY],
 };
-const DONE_RETENTION = 30 * DAY;
+
+export type SortOrder = "createdAsc" | "createdDesc" | "titleAsc" | "titleDesc";
+
+export interface Settings {
+  /** Days a completed item is kept before it is deleted. */
+  completedRetentionDays: number;
+  /** Priorities that drive the sidebar icon and tab dot colors. */
+  reportedPriorities: Priority[];
+  /** Order of items sharing a priority. */
+  sortAfterPriority: SortOrder;
+}
+
+export const DEFAULT_SETTINGS: Settings = {
+  completedRetentionDays: 30,
+  reportedPriorities: ["normal", "medium", "high"],
+  sortAfterPriority: "createdAsc",
+};
 
 const STATUS: Record<Priority, StatusColor> = {
   none: "idle",
@@ -67,8 +83,8 @@ export function escalate(items: Item[], now: number): Item[] {
   });
 }
 
-export function purgeDone(items: Item[], now: number): Item[] {
-  return items.filter((item) => !item.done || now - (item.doneAt ?? now) < DONE_RETENTION);
+export function purgeDone(items: Item[], now: number, retentionDays: number): Item[] {
+  return items.filter((item) => !item.done || now - (item.doneAt ?? now) < retentionDays * DAY);
 }
 
 export function setPriority(item: Item, priority: Priority, now: number): Item {
@@ -81,18 +97,29 @@ export function setDone(item: Item, done: boolean, now: number): Item {
     : { ...item, done: false, doneAt: undefined, priorityAt: now };
 }
 
-export function topPriority(items: Item[]): Priority {
+/** Highest open priority among the reported priorities. */
+export function topPriority(items: Item[], reported: Priority[]): Priority {
   return items.reduce<Priority>(
-    (top, item) => (!item.done && PRIORITIES.indexOf(item.priority) > PRIORITIES.indexOf(top) ? item.priority : top),
+    (top, item) =>
+      !item.done && reported.includes(item.priority) && PRIORITIES.indexOf(item.priority) > PRIORITIES.indexOf(top)
+        ? item.priority
+        : top,
     "none",
   );
 }
 
-/** Active items, highest priority first, then oldest first. */
-export function sortActive(items: Item[]): Item[] {
+const TIEBREAK: Record<SortOrder, (a: Item, b: Item) => number> = {
+  createdAsc: (a, b) => a.createdAt - b.createdAt,
+  createdDesc: (a, b) => b.createdAt - a.createdAt,
+  titleAsc: (a, b) => a.title.localeCompare(b.title),
+  titleDesc: (a, b) => b.title.localeCompare(a.title),
+};
+
+/** Active items, highest priority first, then the configured order. */
+export function sortActive(items: Item[], order: SortOrder): Item[] {
   return items
     .filter((item) => !item.done)
-    .sort((a, b) => PRIORITIES.indexOf(b.priority) - PRIORITIES.indexOf(a.priority) || a.createdAt - b.createdAt);
+    .sort((a, b) => PRIORITIES.indexOf(b.priority) - PRIORITIES.indexOf(a.priority) || TIEBREAK[order](a, b));
 }
 
 /** Newest completion first. */

@@ -3,7 +3,7 @@ import type { CSSProperties } from "react";
 import type { PluginApi, PluginContext } from "stewrd-plugin-api";
 import { PRIORITIES, moveTab, priorityLabel, setDone, setPriority, sortActive, sortDone, statusFor, topPriority } from "./model.ts";
 import type { Item, Priority } from "./model.ts";
-import { flush, getState, init, newId, publish, refresh, setActiveTab, subscribe, update } from "./store.ts";
+import { flush, getState, init, newId, refresh, reloadSettings, setActiveTab, subscribe, update } from "./store.ts";
 import { setViewing } from "./status.ts";
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -23,7 +23,7 @@ const priorityOptions = PRIORITIES.slice().reverse().map((p) => ({ label: priori
 type Dialog = { kind: "add-tab" } | { kind: "rename-tab"; id: string } | { kind: "add-item" } | null;
 
 export function Component({ api }: { api: PluginApi }) {
-  const { data, activeTabId } = useSyncExternalStore(subscribe, getState);
+  const { data, activeTabId, settings } = useSyncExternalStore(subscribe, getState);
   const palette = api.theme.palette;
   const { TextButton, StatusDot } = api.ui;
   const [dialog, setDialog] = useState<Dialog>(null);
@@ -33,7 +33,7 @@ export function Component({ api }: { api: PluginApi }) {
 
   useEffect(() => {
     setViewing(true);
-    publish();
+    reloadSettings();
     const unsubscribe = api.theme.subscribe(() => setThemeVersion((v) => v + 1));
     return () => {
       setViewing(false);
@@ -42,7 +42,7 @@ export function Component({ api }: { api: PluginApi }) {
   }, [api]);
 
   const tabItems = data.items.filter((i) => i.tabId === activeTabId);
-  const active = sortActive(tabItems);
+  const active = sortActive(tabItems, settings.sortAfterPriority);
   const done = sortDone(tabItems);
 
   const tabStyle = (selected: boolean): CSSProperties => ({
@@ -87,7 +87,7 @@ export function Component({ api }: { api: PluginApi }) {
               onDragEnd={() => setDragId(null)}
             >
               <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                <StatusDot color={statusFor(topPriority(data.items.filter((i) => i.tabId === tab.id)))} />
+                <StatusDot color={statusFor(topPriority(data.items.filter((i) => i.tabId === tab.id), settings.reportedPriorities))} />
                 {tab.name}
               </span>
             </div>

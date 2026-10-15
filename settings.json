@@ -1,4 +1,7 @@
 {
   "category": "Utilities",
-  "version": "1.0.1"
+  "version": "1.0.1",
+  "completedRetentionDays": 30,
+  "reportedPriorities": ["normal", "medium", "high"],
+  "sortAfterPriority": "createdAsc"
 }

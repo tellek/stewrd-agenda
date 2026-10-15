@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { DAY, escalate, moveTab, purgeDone, setDone, setPriority, statusFor, topPriority } from "./model.ts";
+import { DAY, escalate, moveTab, purgeDone, setDone, setPriority, sortActive, statusFor, topPriority } from "./model.ts";
 import type { Item, Priority } from "./model.ts";
 
 const item = (over: Partial<Item> = {}): Item => ({
@@ -46,16 +46,42 @@ test("setPriority resets the clock", () => {
 
 test("done items are purged after 30 days", () => {
   const items = [item({ done: true, doneAt: 0 }), item({ id: "b" })];
-  assert.equal(purgeDone(items, 30 * DAY - 1).length, 2);
-  assert.deepEqual(purgeDone(items, 30 * DAY).map((i) => i.id), ["b"]);
+  assert.equal(purgeDone(items, 30 * DAY - 1, 30).length, 2);
+  assert.deepEqual(purgeDone(items, 30 * DAY, 30).map((i) => i.id), ["b"]);
 });
 
 test("topPriority ignores done items and maps to status", () => {
   const items = [item({ priority: "high", done: true }), item({ priority: "medium" }), item({ priority: "normal" })];
-  assert.equal(topPriority(items), "medium");
-  assert.equal(topPriority([]), "none");
+  const all: Priority[] = ["normal", "medium", "high"];
+  assert.equal(topPriority(items, all), "medium");
+  assert.equal(topPriority([], all), "none");
   const order: Priority[] = ["high", "medium", "normal", "none"];
   assert.deepEqual(order.map(statusFor), ["error", "warning", "in-progress", "idle"]);
+});
+
+test("purge honors a custom retention", () => {
+  const items = [item({ done: true, doneAt: 0 })];
+  assert.equal(purgeDone(items, 7 * DAY, 7).length, 0);
+  assert.equal(purgeDone(items, 7 * DAY - 1, 7).length, 1);
+});
+
+test("topPriority only reports configured priorities", () => {
+  const items = [item({ priority: "high" }), item({ priority: "medium" })];
+  assert.equal(topPriority(items, ["medium"]), "medium");
+  assert.equal(topPriority(items, []), "none");
+});
+
+test("sortActive orders by priority then the configured order", () => {
+  const items = [
+    item({ id: "1", title: "b", priority: "normal", createdAt: 1 }),
+    item({ id: "2", title: "a", priority: "normal", createdAt: 2 }),
+    item({ id: "3", title: "z", priority: "high", createdAt: 3 }),
+  ];
+  const ids = (order: Parameters<typeof sortActive>[1]) => sortActive(items, order).map((i) => i.id);
+  assert.deepEqual(ids("createdAsc"), ["3", "1", "2"]);
+  assert.deepEqual(ids("createdDesc"), ["3", "2", "1"]);
+  assert.deepEqual(ids("titleAsc"), ["3", "2", "1"]);
+  assert.deepEqual(ids("titleDesc"), ["3", "1", "2"]);
 });
 
 test("moveTab reorders", () => {

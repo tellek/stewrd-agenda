@@ -16,3 +16,13 @@ npm test
 npm run build
 ./build-release.bat
 ```
+
+## Settings
+
+Edit via Settings > Plugins > Configure (`settings.json`). Changes apply the next time the pane opens.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `completedRetentionDays` | `30` | Days a completed item is kept before it is deleted |
+| `reportedPriorities` | `["normal", "medium", "high"]` | Priorities that color the sidebar icon and tab dots (`none`, `normal`, `medium`, `high`) |
+| `sortAfterPriority` | `"createdAsc"` | Order within a priority: `createdAsc`, `createdDesc`, `titleAsc`, `titleDesc` |

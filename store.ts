@@ -1,20 +1,22 @@
 // One shared store for the tick handler and the pane, so neither overwrites
 // the other's edits. Saves are debounced and flushed on dispose.
 import type { PluginApi } from "stewrd-plugin-api";
-import { escalate, purgeDone, statusFor, topPriority } from "./model.ts";
-import type { Data } from "./model.ts";
+import { DEFAULT_SETTINGS, escalate, purgeDone, statusFor, topPriority } from "./model.ts";
+import type { Data, Settings } from "./model.ts";
+import { loadSettings } from "./settings.ts";
 import { setStatus } from "./status.ts";
 
 export interface State {
   data: Data;
   activeTabId: string;
+  settings: Settings;
 }
 
 const KEY = "data";
 const SAVE_DEBOUNCE_MS = 500;
 
 let api: PluginApi | undefined;
-let state: State = { data: { tabs: [], items: [] }, activeTabId: "" };
+let state: State = { data: { tabs: [], items: [] }, activeTabId: "", settings: DEFAULT_SETTINGS };
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
 const listeners = new Set<() => void>();
 
@@ -36,16 +38,23 @@ function set(next: State) {
 
 export async function init(pluginApi: PluginApi) {
   api = pluginApi;
+  const settings = await loadSettings("agenda");
   const stored = await api.storage.get<Data>(KEY);
   const data: Data = stored?.tabs?.length ? stored : { tabs: [{ id: newId(), name: "General" }], items: stored?.items ?? [] };
-  set({ data, activeTabId: data.tabs[0].id });
+  set({ data, activeTabId: data.tabs[0].id, settings });
   refresh();
 }
 
 /** Escalates priorities, drops expired done items, and republishes the sidebar status. */
+/** Re-reads settings.json so edits apply without a restart. */
+export async function reloadSettings() {
+  set({ ...state, settings: await loadSettings("agenda") });
+  refresh();
+}
+
 export function refresh() {
   const now = Date.now();
-  const items = purgeDone(escalate(state.data.items, now), now);
+  const items = purgeDone(escalate(state.data.items, now), now, state.settings.completedRetentionDays);
   const changed = items.length !== state.data.items.length || items.some((item, i) => item !== state.data.items[i]);
   if (changed) update((data) => ({ ...data, items }));
   publish();
@@ -53,7 +62,7 @@ export function refresh() {
 
 export function publish() {
   if (!api) return;
-  const top = topPriority(state.data.items);
+  const top = topPriority(state.data.items, state.settings.reportedPriorities);
   setStatus(api, "priority", statusFor(top), top === "none" ? undefined : `Highest priority: ${top}`);
 }
 

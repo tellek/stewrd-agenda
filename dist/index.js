@@ -9,7 +9,11 @@ var ESCALATION = {
   normal: ["medium", 7 * DAY],
   medium: ["high", DAY]
 };
-var DONE_RETENTION = 30 * DAY;
+var DEFAULT_SETTINGS = {
+  completedRetentionDays: 30,
+  reportedPriorities: ["normal", "medium", "high"],
+  sortAfterPriority: "createdAsc"
+};
 var STATUS = {
   none: "idle",
   normal: "in-progress",
@@ -36,8 +40,8 @@ function escalate(items, now) {
     return priority === item.priority ? item : { ...item, priority, priorityAt };
   });
 }
-function purgeDone(items, now) {
-  return items.filter((item) => !item.done || now - (item.doneAt ?? now) < DONE_RETENTION);
+function purgeDone(items, now, retentionDays) {
+  return items.filter((item) => !item.done || now - (item.doneAt ?? now) < retentionDays * DAY);
 }
 function setPriority(item, priority, now) {
   return { ...item, priority, priorityAt: now };
@@ -45,14 +49,20 @@ function setPriority(item, priority, now) {
 function setDone(item, done, now) {
   return done ? { ...item, done: true, doneAt: now } : { ...item, done: false, doneAt: void 0, priorityAt: now };
 }
-function topPriority(items) {
+function topPriority(items, reported) {
   return items.reduce(
-    (top, item) => !item.done && PRIORITIES.indexOf(item.priority) > PRIORITIES.indexOf(top) ? item.priority : top,
+    (top, item) => !item.done && reported.includes(item.priority) && PRIORITIES.indexOf(item.priority) > PRIORITIES.indexOf(top) ? item.priority : top,
     "none"
   );
 }
-function sortActive(items) {
-  return items.filter((item) => !item.done).sort((a, b) => PRIORITIES.indexOf(b.priority) - PRIORITIES.indexOf(a.priority) || a.createdAt - b.createdAt);
+var TIEBREAK = {
+  createdAsc: (a, b) => a.createdAt - b.createdAt,
+  createdDesc: (a, b) => b.createdAt - a.createdAt,
+  titleAsc: (a, b) => a.title.localeCompare(b.title),
+  titleDesc: (a, b) => b.title.localeCompare(a.title)
+};
+function sortActive(items, order) {
+  return items.filter((item) => !item.done).sort((a, b) => PRIORITIES.indexOf(b.priority) - PRIORITIES.indexOf(a.priority) || TIEBREAK[order](a, b));
 }
 function sortDone(items) {
   return items.filter((item) => item.done).sort((a, b) => (b.doneAt ?? 0) - (a.doneAt ?? 0));
@@ -65,6 +75,23 @@ function moveTab(tabs, fromId, toId) {
   const [moved] = next.splice(from, 1);
   next.splice(to, 0, moved);
   return next;
+}
+
+// settings.ts
+import { invoke } from "@tauri-apps/api/core";
+var SORT_ORDERS = ["createdAsc", "createdDesc", "titleAsc", "titleDesc"];
+async function loadSettings(pluginId) {
+  try {
+    const parsed = JSON.parse(await invoke("read_plugin_settings_file", { dir: pluginId }));
+    const days = parsed.completedRetentionDays;
+    return {
+      completedRetentionDays: typeof days === "number" && days >= 0 ? days : DEFAULT_SETTINGS.completedRetentionDays,
+      reportedPriorities: Array.isArray(parsed.reportedPriorities) ? parsed.reportedPriorities.filter((p) => PRIORITIES.includes(p)) : DEFAULT_SETTINGS.reportedPriorities,
+      sortAfterPriority: SORT_ORDERS.includes(parsed.sortAfterPriority) ? parsed.sortAfterPriority : DEFAULT_SETTINGS.sortAfterPriority
+    };
+  } catch {
+    return DEFAULT_SETTINGS;
+  }
 }
 
 // status.ts
@@ -113,7 +140,7 @@ window.addEventListener("blur", scheduleReset);
 var KEY = "data";
 var SAVE_DEBOUNCE_MS = 500;
 var api;
-var state = { data: { tabs: [], items: [] }, activeTabId: "" };
+var state = { data: { tabs: [], items: [] }, activeTabId: "", settings: DEFAULT_SETTINGS };
 var saveTimer;
 var listeners2 = /* @__PURE__ */ new Set();
 var newId = () => crypto.randomUUID();
@@ -130,21 +157,26 @@ function set(next) {
 }
 async function init(pluginApi) {
   api = pluginApi;
+  const settings = await loadSettings("agenda");
   const stored = await api.storage.get(KEY);
   const data = stored?.tabs?.length ? stored : { tabs: [{ id: newId(), name: "General" }], items: stored?.items ?? [] };
-  set({ data, activeTabId: data.tabs[0].id });
+  set({ data, activeTabId: data.tabs[0].id, settings });
+  refresh();
+}
+async function reloadSettings() {
+  set({ ...state, settings: await loadSettings("agenda") });
   refresh();
 }
 function refresh() {
   const now = Date.now();
-  const items = purgeDone(escalate(state.data.items, now), now);
+  const items = purgeDone(escalate(state.data.items, now), now, state.settings.completedRetentionDays);
   const changed = items.length !== state.data.items.length || items.some((item, i) => item !== state.data.items[i]);
   if (changed) update((data) => ({ ...data, items }));
   publish2();
 }
 function publish2() {
   if (!api) return;
-  const top = topPriority(state.data.items);
+  const top = topPriority(state.data.items, state.settings.reportedPriorities);
   setStatus(api, "priority", statusFor(top), top === "none" ? void 0 : `Highest priority: ${top}`);
 }
 function update(fn) {
@@ -180,7 +212,7 @@ async function activate(ctx) {
 }
 var priorityOptions = PRIORITIES.slice().reverse().map((p) => ({ label: priorityLabel[p], value: p }));
 function Component({ api: api2 }) {
-  const { data, activeTabId } = useSyncExternalStore(subscribe, getState);
+  const { data, activeTabId, settings } = useSyncExternalStore(subscribe, getState);
   const palette = api2.theme.palette;
   const { TextButton, StatusDot } = api2.ui;
   const [dialog, setDialog] = useState(null);
@@ -189,7 +221,7 @@ function Component({ api: api2 }) {
   const [, setThemeVersion] = useState(0);
   useEffect(() => {
     setViewing(true);
-    publish2();
+    reloadSettings();
     const unsubscribe = api2.theme.subscribe(() => setThemeVersion((v) => v + 1));
     return () => {
       setViewing(false);
@@ -197,7 +229,7 @@ function Component({ api: api2 }) {
     };
   }, [api2]);
   const tabItems = data.items.filter((i) => i.tabId === activeTabId);
-  const active = sortActive(tabItems);
+  const active = sortActive(tabItems, settings.sortAfterPriority);
   const done = sortDone(tabItems);
   const tabStyle = (selected) => ({
     padding: "6px 12px",
@@ -237,7 +269,7 @@ function Component({ api: api2 }) {
             },
             onDragEnd: () => setDragId(null),
             children: /* @__PURE__ */ jsxs("span", { style: { display: "inline-flex", alignItems: "center", gap: 6 }, children: [
-              /* @__PURE__ */ jsx(StatusDot, { color: statusFor(topPriority(data.items.filter((i) => i.tabId === tab.id))) }),
+              /* @__PURE__ */ jsx(StatusDot, { color: statusFor(topPriority(data.items.filter((i) => i.tabId === tab.id), settings.reportedPriorities)) }),
               tab.name
             ] })
           },
