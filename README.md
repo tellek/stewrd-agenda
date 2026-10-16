@@ -3,6 +3,7 @@
 A Stewrd plugin for tabbed to-do and agenda lists.
 
 - Tabs: `+` adds one, right-click renames, drag to reorder (a vertical bar marks where the tab will land). Tab order and the selected tab are saved automatically.
+- Schedule: the Schedule button creates items that appear on the board at a set date and time, once or repeating daily, weekly or monthly, and lists existing schedules for deletion.
 - Combined tab: with more than one tab, a Combined tab at the left shows every item. Turn it off with `showCombinedTab`.
 - Click anywhere outside an expanded item to collapse it.
 - Items: title, optional description and priority. Check the box to complete; completed items sit greyed at the bottom for 30 days and can be restored.

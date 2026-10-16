@@ -90,6 +90,46 @@ function moveTabBefore(order, id, beforeId) {
 function resolveActiveTab(activeId, tabs) {
   return tabs.some((t) => t.id === activeId) ? activeId : tabs[0].id;
 }
+var repeatLabel = {
+  once: "Once",
+  daily: "Daily",
+  weekly: "Weekly",
+  monthly: "Monthly"
+};
+function toTimestamp(date, time) {
+  const [y, m, d] = date.split("-").map(Number);
+  const [hh, mm] = time.split(":").map(Number);
+  return new Date(y, m - 1, d, hh, mm).getTime();
+}
+function nextOccurrence(at, repeat, anchorDay) {
+  const next = new Date(at);
+  if (repeat === "daily") next.setDate(next.getDate() + 1);
+  else if (repeat === "weekly") next.setDate(next.getDate() + 7);
+  else if (repeat === "monthly") {
+    next.setDate(1);
+    next.setMonth(next.getMonth() + 1);
+    next.setDate(Math.min(anchorDay, new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate()));
+  }
+  return next.getTime();
+}
+function fireDue(data, now) {
+  const schedules = data.schedules ?? [];
+  if (!schedules.some((s) => s.nextAt <= now)) return data;
+  const items = [...data.items];
+  const remaining = [];
+  for (const s of schedules) {
+    if (s.nextAt > now) {
+      remaining.push(s);
+      continue;
+    }
+    items.push({ id: crypto.randomUUID(), tabId: s.tabId, title: s.title, description: s.description, priority: s.priority, priorityAt: now, createdAt: now, done: false });
+    if (s.repeat === "once") continue;
+    let nextAt = s.nextAt;
+    while (nextAt <= now) nextAt = nextOccurrence(nextAt, s.repeat, s.anchorDay);
+    remaining.push({ ...s, nextAt });
+  }
+  return { ...data, items, schedules: remaining };
+}
 function itemsForTab(items, tabId) {
   return tabId === COMBINED_ID ? items : items.filter((i) => i.tabId === tabId);
 }
@@ -189,9 +229,10 @@ async function reloadSettings() {
 }
 function refresh() {
   const now = Date.now();
-  const items = purgeDone(escalate(state.data.items, now), now, state.settings.completedRetentionDays);
-  const changed = items.length !== state.data.items.length || items.some((item, i) => item !== state.data.items[i]);
-  if (changed) update((data) => ({ ...data, items }));
+  const fired = fireDue(state.data, now);
+  const items = purgeDone(escalate(fired.items, now), now, state.settings.completedRetentionDays);
+  const changed = fired !== state.data || items.length !== fired.items.length || items.some((item, i) => item !== fired.items[i]);
+  if (changed) update(() => ({ ...fired, items }));
   publish2();
 }
 function publish2() {
@@ -222,16 +263,17 @@ function flush() {
 
 // index.tsx
 import { jsx, jsxs } from "react/jsx-runtime";
-var HOUR_MS = 60 * 60 * 1e3;
+var TICK_MS = 60 * 1e3;
 var TAB_DRAG_TYPE = "application/x-agenda-tab";
 async function activate(ctx) {
   await init(ctx.api);
   ctx.tick.register(() => refresh());
-  ctx.tick.setInterval(HOUR_MS);
+  ctx.tick.setInterval(TICK_MS);
   ctx.tick.requestWake(2e3);
   ctx.onDispose(flush);
 }
 var priorityOptions = PRIORITIES.slice().reverse().map((p) => ({ label: priorityLabel[p], value: p }));
+var repeatOptions = Object.keys(repeatLabel).map((r) => ({ label: repeatLabel[r], value: r }));
 function Component({ api: api2 }) {
   const { data, activeTabId, settings } = useSyncExternalStore(subscribe, getState);
   const palette = api2.theme.palette;
@@ -326,7 +368,8 @@ function Component({ api: api2 }) {
           ]
         }
       ),
-      /* @__PURE__ */ jsx(TextButton, { label: "Add Item", variant: "primary", onClick: () => setDialog({ kind: "add-item" }) })
+      /* @__PURE__ */ jsx(TextButton, { label: "Add Item", variant: "primary", onClick: () => setDialog({ kind: "add-item" }) }),
+      /* @__PURE__ */ jsx(TextButton, { label: "Schedule", variant: "secondary", onClick: () => setDialog({ kind: "schedule" }) })
     ] }),
     /* @__PURE__ */ jsxs("div", { "data-agenda-list": true, style: { flex: 1, minHeight: 0, overflow: "auto", scrollbarWidth: "thin", scrollbarColor: `${palette.border} ${palette.surface}` }, children: [
       active.map((item) => /* @__PURE__ */ jsx(Row, { api: api2, item }, item.id)),
@@ -360,8 +403,85 @@ function Component({ api: api2 }) {
         onSave: (name) => update((d) => ({ ...d, tabs: d.tabs.map((t) => t.id === dialog.id ? { ...t, name } : t) }))
       }
     ),
-    dialog?.kind === "add-item" && /* @__PURE__ */ jsx(ItemDialog, { api: api2, tabId: activeTabId === COMBINED_ID ? data.tabs[0].id : activeTabId, width: Math.round((rootRef.current?.clientWidth ?? 0) / 2) - 34, onClose: () => setDialog(null) })
+    dialog?.kind === "add-item" && /* @__PURE__ */ jsx(ItemDialog, { api: api2, tabId: activeTabId === COMBINED_ID ? data.tabs[0].id : activeTabId, width: Math.round((rootRef.current?.clientWidth ?? 0) / 2) - 34, onClose: () => setDialog(null) }),
+    dialog?.kind === "schedule" && /* @__PURE__ */ jsx(
+      ScheduleDialog,
+      {
+        api: api2,
+        defaultTabId: activeTabId === COMBINED_ID ? data.tabs[0].id : activeTabId,
+        width: Math.round((rootRef.current?.clientWidth ?? 0) / 2) - 34,
+        maxHeight: Math.round((rootRef.current?.clientHeight ?? 0) * 0.8) - 60,
+        onClose: () => setDialog(null)
+      }
+    )
   ] });
+}
+function ScheduleDialog(props) {
+  const { api: api2, defaultTabId, width, maxHeight, onClose } = props;
+  const { TextBox, TextButton, InlineDialog, Dropdown, DatePicker, TimePicker } = api2.ui;
+  const palette = api2.theme.palette;
+  const { data } = useSyncExternalStore(subscribe, getState);
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [priority, setPriorityValue] = useState("none");
+  const [tabId, setTabId] = useState(defaultTabId);
+  const [repeat, setRepeat] = useState("once");
+  const [date, setDate] = useState("");
+  const [time, setTime] = useState("09:00");
+  const schedules = (data.schedules ?? []).slice().sort((a, b) => a.nextAt - b.nextAt);
+  const tabOptions = data.tabs.map((t) => ({ label: t.name, value: t.id }));
+  const valid = !!title.trim() && !!date && !!time;
+  const add = () => {
+    if (!valid) return;
+    const nextAt = toTimestamp(date, time);
+    update((d) => ({
+      ...d,
+      schedules: [
+        ...d.schedules ?? [],
+        { id: newId(), tabId, title: title.trim(), description, priority, repeat, nextAt, anchorDay: new Date(nextAt).getDate() }
+      ]
+    }));
+    setTitle("");
+    setDescription("");
+    refresh();
+  };
+  const remove = async (id, name) => {
+    const ok = await api2.modal.confirm({ title: "Delete Schedule", message: `Permanently delete "${name}"? This cannot be undone.`, confirmLabel: "Delete" });
+    if (ok) update((d) => ({ ...d, schedules: (d.schedules ?? []).filter((s) => s.id !== id) }));
+  };
+  return /* @__PURE__ */ jsx(InlineDialog, { open: true, title: "Schedule", onClose, children: /* @__PURE__ */ jsxs("div", { style: { display: "flex", flexDirection: "column", gap: 8, width, maxHeight, overflow: "auto", scrollbarWidth: "thin", scrollbarColor: `${palette.border} ${palette.surface}` }, children: [
+    /* @__PURE__ */ jsx("div", { onKeyDown: (e) => e.key === "Enter" && add(), children: /* @__PURE__ */ jsx(TextBox, { singleLine: true, value: title, onChange: setTitle, placeholder: "Title" }) }),
+    /* @__PURE__ */ jsx(TextBox, { rows: 3, value: description, onChange: setDescription, placeholder: "Description (Optional)" }),
+    /* @__PURE__ */ jsxs("div", { style: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }, children: [
+      /* @__PURE__ */ jsx(Dropdown, { options: tabOptions, value: tabId, onChange: (v) => setTabId(v) }),
+      /* @__PURE__ */ jsx(Dropdown, { options: priorityOptions, value: priority, onChange: (v) => setPriorityValue(v) }),
+      /* @__PURE__ */ jsx(Dropdown, { options: repeatOptions, value: repeat, onChange: (v) => setRepeat(v) })
+    ] }),
+    /* @__PURE__ */ jsxs("div", { style: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }, children: [
+      /* @__PURE__ */ jsx(DatePicker, { value: date, onChange: setDate, placeholder: "Pick A Date" }),
+      /* @__PURE__ */ jsx(TimePicker, { value: time, onChange: setTime })
+    ] }),
+    /* @__PURE__ */ jsxs("div", { style: { display: "flex", gap: 8, justifyContent: "flex-end" }, children: [
+      /* @__PURE__ */ jsx(TextButton, { label: "Close", variant: "secondary", onClick: onClose }),
+      /* @__PURE__ */ jsx(TextButton, { label: "Add Schedule", variant: "primary", disabled: !valid, onClick: add })
+    ] }),
+    /* @__PURE__ */ jsxs("div", { style: { borderTop: `1px solid ${palette.border}`, paddingTop: 8 }, children: [
+      schedules.length === 0 && /* @__PURE__ */ jsx("div", { style: { color: palette.textMuted }, children: "No Schedules Yet" }),
+      schedules.map((s) => /* @__PURE__ */ jsxs("div", { style: { display: "flex", alignItems: "center", gap: 8, padding: "4px 0", borderBottom: `1px solid ${palette.border}` }, children: [
+        /* @__PURE__ */ jsxs("div", { style: { flex: 1, minWidth: 0 }, children: [
+          /* @__PURE__ */ jsx("div", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: s.title }),
+          /* @__PURE__ */ jsxs("div", { style: { color: palette.textMuted }, children: [
+            data.tabs.find((t) => t.id === s.tabId)?.name ?? "Unknown Tab",
+            " \xB7 ",
+            repeatLabel[s.repeat],
+            " \xB7 ",
+            new Date(s.nextAt).toLocaleString()
+          ] })
+        ] }),
+        /* @__PURE__ */ jsx(TextButton, { label: "Delete", variant: "secondary", onClick: () => remove(s.id, s.title) })
+      ] }, s.id))
+    ] })
+  ] }) });
 }
 function NameDialog(props) {
   const { TextBox, TextButton, InlineDialog } = props.api.ui;

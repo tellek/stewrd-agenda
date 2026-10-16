@@ -1,7 +1,7 @@
 // One shared store for the tick handler and the pane, so neither overwrites
 // the other's edits. Saves are debounced and flushed on dispose.
 import type { PluginApi } from "stewrd-plugin-api";
-import { DEFAULT_SETTINGS, escalate, orderedTabs, purgeDone, reconcileOrder, resolveActiveTab, statusFor, topPriority } from "./model.ts";
+import { DEFAULT_SETTINGS, escalate, fireDue, orderedTabs, purgeDone, reconcileOrder, resolveActiveTab, statusFor, topPriority } from "./model.ts";
 import type { Data, Settings } from "./model.ts";
 import { loadSettings } from "./settings.ts";
 import { setStatus } from "./status.ts";
@@ -56,9 +56,10 @@ export async function reloadSettings() {
 
 export function refresh() {
   const now = Date.now();
-  const items = purgeDone(escalate(state.data.items, now), now, state.settings.completedRetentionDays);
-  const changed = items.length !== state.data.items.length || items.some((item, i) => item !== state.data.items[i]);
-  if (changed) update((data) => ({ ...data, items }));
+  const fired = fireDue(state.data, now);
+  const items = purgeDone(escalate(fired.items, now), now, state.settings.completedRetentionDays);
+  const changed = fired !== state.data || items.length !== fired.items.length || items.some((item, i) => item !== fired.items[i]);
+  if (changed) update(() => ({ ...fired, items }));
   publish();
 }
 

@@ -1,18 +1,18 @@
 import { Fragment, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { CSSProperties } from "react";
 import type { PluginApi, PluginContext } from "stewrd-plugin-api";
-import { COMBINED_ID, PRIORITIES, itemsForTab, moveTabBefore, orderedTabs, priorityLabel, reconcileOrder, setDone, setPriority, sortActive, sortDone, statusFor, topPriority } from "./model.ts";
-import type { Item, Priority } from "./model.ts";
+import { COMBINED_ID, PRIORITIES, itemsForTab, moveTabBefore, orderedTabs, priorityLabel, reconcileOrder, repeatLabel, setDone, setPriority, sortActive, sortDone, statusFor, toTimestamp, topPriority } from "./model.ts";
+import type { Item, Priority, Repeat } from "./model.ts";
 import { flush, getState, init, newId, refresh, reloadSettings, setActiveTab, subscribe, update } from "./store.ts";
 import { setViewing } from "./status.ts";
 
-const HOUR_MS = 60 * 60 * 1000;
+const TICK_MS = 60 * 1000;
 const TAB_DRAG_TYPE = "application/x-agenda-tab";
 
 export async function activate(ctx: PluginContext) {
   await init(ctx.api);
   ctx.tick.register(() => refresh());
-  ctx.tick.setInterval(HOUR_MS);
+  ctx.tick.setInterval(TICK_MS);
   // statusIcon.set is a no-op until the host registers this plugin, so republish shortly after startup.
   ctx.tick.requestWake(2000);
   ctx.onDispose(flush);
@@ -20,7 +20,9 @@ export async function activate(ctx: PluginContext) {
 
 const priorityOptions = PRIORITIES.slice().reverse().map((p) => ({ label: priorityLabel[p], value: p }));
 
-type Dialog = { kind: "add-tab" } | { kind: "rename-tab"; id: string } | { kind: "add-item" } | null;
+const repeatOptions = (Object.keys(repeatLabel) as Repeat[]).map((r) => ({ label: repeatLabel[r], value: r }));
+
+type Dialog = { kind: "add-tab" } | { kind: "rename-tab"; id: string } | { kind: "add-item" } | { kind: "schedule" } | null;
 
 export function Component({ api }: { api: PluginApi }) {
   const { data, activeTabId, settings } = useSyncExternalStore(subscribe, getState);
@@ -122,6 +124,7 @@ export function Component({ api }: { api: PluginApi }) {
           <TextButton label="+" bordered={false} onClick={() => setDialog({ kind: "add-tab" })} />
         </div>
         <TextButton label="Add Item" variant="primary" onClick={() => setDialog({ kind: "add-item" })} />
+        <TextButton label="Schedule" variant="secondary" onClick={() => setDialog({ kind: "schedule" })} />
       </div>
 
       <div data-agenda-list style={{ flex: 1, minHeight: 0, overflow: "auto", scrollbarWidth: "thin", scrollbarColor: `${palette.border} ${palette.surface}` }}>
@@ -162,7 +165,90 @@ export function Component({ api }: { api: PluginApi }) {
         />
       )}
       {dialog?.kind === "add-item" && <ItemDialog api={api} tabId={activeTabId === COMBINED_ID ? data.tabs[0].id : activeTabId}width={Math.round((rootRef.current?.clientWidth ?? 0) / 2) - 34} onClose={() => setDialog(null)} />}
+      {dialog?.kind === "schedule" && (
+        <ScheduleDialog
+          api={api}
+          defaultTabId={activeTabId === COMBINED_ID ? data.tabs[0].id : activeTabId}
+          width={Math.round((rootRef.current?.clientWidth ?? 0) / 2) - 34}
+          maxHeight={Math.round((rootRef.current?.clientHeight ?? 0) * 0.8) - 60}
+          onClose={() => setDialog(null)}
+        />
+      )}
     </div>
+  );
+}
+
+function ScheduleDialog(props: { api: PluginApi; defaultTabId: string; width: number; maxHeight: number; onClose: () => void }) {
+  const { api, defaultTabId, width, maxHeight, onClose } = props;
+  const { TextBox, TextButton, InlineDialog, Dropdown, DatePicker, TimePicker } = api.ui;
+  const palette = api.theme.palette;
+  const { data } = useSyncExternalStore(subscribe, getState);
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [priority, setPriorityValue] = useState<Priority>("none");
+  const [tabId, setTabId] = useState(defaultTabId);
+  const [repeat, setRepeat] = useState<Repeat>("once");
+  const [date, setDate] = useState("");
+  const [time, setTime] = useState("09:00");
+  const schedules = (data.schedules ?? []).slice().sort((a, b) => a.nextAt - b.nextAt);
+  const tabOptions = data.tabs.map((t) => ({ label: t.name, value: t.id }));
+  const valid = !!title.trim() && !!date && !!time;
+
+  const add = () => {
+    if (!valid) return;
+    const nextAt = toTimestamp(date, time);
+    update((d) => ({
+      ...d,
+      schedules: [
+        ...(d.schedules ?? []),
+        { id: newId(), tabId, title: title.trim(), description, priority, repeat, nextAt, anchorDay: new Date(nextAt).getDate() },
+      ],
+    }));
+    setTitle("");
+    setDescription("");
+    refresh(); // a start time already in the past fires right away
+  };
+  const remove = async (id: string, name: string) => {
+    const ok = await api.modal.confirm({ title: "Delete Schedule", message: `Permanently delete "${name}"? This cannot be undone.`, confirmLabel: "Delete" });
+    if (ok) update((d) => ({ ...d, schedules: (d.schedules ?? []).filter((s) => s.id !== id) }));
+  };
+
+  return (
+    <InlineDialog open title="Schedule" onClose={onClose}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, width, maxHeight, overflow: "auto", scrollbarWidth: "thin", scrollbarColor: `${palette.border} ${palette.surface}` }}>
+        <div onKeyDown={(e) => e.key === "Enter" && add()}>
+          <TextBox singleLine value={title} onChange={setTitle} placeholder="Title" />
+        </div>
+        <TextBox rows={3} value={description} onChange={setDescription} placeholder="Description (Optional)" />
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <Dropdown options={tabOptions} value={tabId} onChange={(v) => setTabId(v as string)} />
+          <Dropdown options={priorityOptions} value={priority} onChange={(v) => setPriorityValue(v as Priority)} />
+          <Dropdown options={repeatOptions} value={repeat} onChange={(v) => setRepeat(v as Repeat)} />
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <DatePicker value={date} onChange={setDate} placeholder="Pick A Date" />
+          <TimePicker value={time} onChange={setTime} />
+        </div>
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <TextButton label="Close" variant="secondary" onClick={onClose} />
+          <TextButton label="Add Schedule" variant="primary" disabled={!valid} onClick={add} />
+        </div>
+        <div style={{ borderTop: `1px solid ${palette.border}`, paddingTop: 8 }}>
+          {schedules.length === 0 && <div style={{ color: palette.textMuted }}>No Schedules Yet</div>}
+          {schedules.map((s) => (
+            <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0", borderBottom: `1px solid ${palette.border}` }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.title}</div>
+                <div style={{ color: palette.textMuted }}>
+                  {data.tabs.find((t) => t.id === s.tabId)?.name ?? "Unknown Tab"} · {repeatLabel[s.repeat]} · {new Date(s.nextAt).toLocaleString()}
+                </div>
+              </div>
+              <TextButton label="Delete" variant="secondary" onClick={() => remove(s.id, s.title)} />
+            </div>
+          ))}
+        </div>
+      </div>
+    </InlineDialog>
   );
 }
 

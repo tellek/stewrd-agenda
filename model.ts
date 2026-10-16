@@ -20,9 +20,25 @@ export interface Tab {
   name: string;
 }
 
+export type Repeat = "once" | "daily" | "weekly" | "monthly";
+
+/** Template that creates an Item on its tab each time nextAt passes. */
+export interface Schedule {
+  id: string;
+  tabId: string;
+  title: string;
+  description: string;
+  priority: Priority;
+  repeat: Repeat;
+  nextAt: number;
+  /** Day of month of the first occurrence, so a clamped month (Feb 28) returns to it (Mar 31). */
+  anchorDay: number;
+}
+
 export interface Data {
   tabs: Tab[];
   items: Item[];
+  schedules?: Schedule[];
   /** Display order of every tab id, including COMBINED_ID. */
   tabOrder?: string[];
   activeTabId?: string;
@@ -165,6 +181,53 @@ export function moveTabBefore(order: string[], id: string, beforeId: string | nu
 /** The saved active tab if it is displayed, otherwise the first displayed tab. */
 export function resolveActiveTab(activeId: string | undefined, tabs: Tab[]): string {
   return tabs.some((t) => t.id === activeId) ? activeId! : tabs[0].id;
+}
+
+export const repeatLabel: Record<Repeat, string> = {
+  once: "Once",
+  daily: "Daily",
+  weekly: "Weekly",
+  monthly: "Monthly",
+};
+
+/** Local timestamp from a DatePicker "YYYY-MM-DD" and TimePicker "HH:MM" (Date's string parser would read the date as UTC). */
+export function toTimestamp(date: string, time: string): number {
+  const [y, m, d] = date.split("-").map(Number);
+  const [hh, mm] = time.split(":").map(Number);
+  return new Date(y, m - 1, d, hh, mm).getTime();
+}
+
+/** The occurrence after `at`, using calendar math so the local time of day survives DST changes. */
+export function nextOccurrence(at: number, repeat: Repeat, anchorDay: number): number {
+  const next = new Date(at);
+  if (repeat === "daily") next.setDate(next.getDate() + 1);
+  else if (repeat === "weekly") next.setDate(next.getDate() + 7);
+  else if (repeat === "monthly") {
+    next.setDate(1);
+    next.setMonth(next.getMonth() + 1);
+    next.setDate(Math.min(anchorDay, new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate()));
+  }
+  return next.getTime();
+}
+
+/** Turns every due schedule into an Item and advances or removes it. Returns the same Data when nothing is due. */
+export function fireDue(data: Data, now: number): Data {
+  const schedules = data.schedules ?? [];
+  if (!schedules.some((s) => s.nextAt <= now)) return data;
+  const items = [...data.items];
+  const remaining: Schedule[] = [];
+  for (const s of schedules) {
+    if (s.nextAt > now) {
+      remaining.push(s);
+      continue;
+    }
+    items.push({ id: crypto.randomUUID(), tabId: s.tabId, title: s.title, description: s.description, priority: s.priority, priorityAt: now, createdAt: now, done: false });
+    if (s.repeat === "once") continue;
+    let nextAt = s.nextAt;
+    while (nextAt <= now) nextAt = nextOccurrence(nextAt, s.repeat, s.anchorDay);
+    remaining.push({ ...s, nextAt });
+  }
+  return { ...data, items, schedules: remaining };
 }
 
 export function itemsForTab(items: Item[], tabId: string): Item[] {

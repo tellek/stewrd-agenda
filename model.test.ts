@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { DAY, escalate, itemsForTab, moveTabBefore, orderedTabs, purgeDone, reconcileOrder, resolveActiveTab, setDone, setPriority, sortActive, statusFor, topPriority } from "./model.ts";
-import type { Item, Priority } from "./model.ts";
+import { DAY, escalate, fireDue, itemsForTab, nextOccurrence, toTimestamp, moveTabBefore, orderedTabs, purgeDone, reconcileOrder, resolveActiveTab, setDone, setPriority, sortActive, statusFor, topPriority } from "./model.ts";
+import type { Data, Item, Priority, Schedule } from "./model.ts";
 
 const item = (over: Partial<Item> = {}): Item => ({
   id: "a", tabId: "t", title: "x", description: "", priority: "none",
@@ -120,4 +120,48 @@ test("itemsForTab returns every item for Combined", () => {
   const items = [item({ id: "1", tabId: "a" }), item({ id: "2", tabId: "b" })];
   assert.equal(itemsForTab(items, "combined").length, 2);
   assert.deepEqual(itemsForTab(items, "b").map((i) => i.id), ["2"]);
+});
+
+const sched = (over: Partial<Schedule> = {}): Schedule => ({
+  id: "s", tabId: "t", title: "Pay rent", description: "", priority: "none",
+  repeat: "once", nextAt: 1000, anchorDay: 1, ...over,
+});
+const data = (schedules: Schedule[]): Data => ({ tabs: [{ id: "t", name: "T" }], items: [], schedules });
+
+test("toTimestamp reads date and time as local", () => {
+  const d = new Date(toTimestamp("2026-03-05", "14:30"));
+  assert.deepEqual([d.getFullYear(), d.getMonth(), d.getDate(), d.getHours(), d.getMinutes()], [2026, 2, 5, 14, 30]);
+});
+
+test("monthly keeps the anchor day after a short month", () => {
+  const jan31 = toTimestamp("2026-01-31", "09:00");
+  const feb = nextOccurrence(jan31, "monthly", 31);
+  assert.equal(new Date(feb).getDate(), 28);
+  assert.equal(new Date(nextOccurrence(feb, "monthly", 31)).getDate(), 31);
+});
+
+test("daily and weekly keep the local time of day", () => {
+  const at = toTimestamp("2026-03-07", "09:00");
+  assert.equal(new Date(nextOccurrence(at, "daily", 7)).getHours(), 9);
+  assert.equal(new Date(nextOccurrence(at, "weekly", 7)).getDate(), 14);
+});
+
+test("fireDue leaves data alone when nothing is due", () => {
+  const d = data([sched({ nextAt: 5000 })]);
+  assert.equal(fireDue(d, 1000), d);
+});
+
+test("a due once schedule becomes an item and is removed", () => {
+  const out = fireDue(data([sched()]), 2000);
+  assert.equal(out.items.length, 1);
+  assert.equal(out.items[0].title, "Pay rent");
+  assert.equal(out.items[0].priorityAt, 2000);
+  assert.deepEqual(out.schedules, []);
+});
+
+test("an overdue recurring schedule fires once and moves past now", () => {
+  const now = 10 * DAY;
+  const out = fireDue(data([sched({ repeat: "daily", nextAt: DAY })]), now);
+  assert.equal(out.items.length, 1);
+  assert.ok(out.schedules![0].nextAt > now);
 });
