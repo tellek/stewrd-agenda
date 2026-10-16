@@ -238,7 +238,7 @@ function ScheduleDialog(props: { api: PluginApi; defaultTabId: string; width: nu
 
   return (
     <InlineDialog open title="Schedule" onClose={onClose}>
-      <div style={{ display: "flex", flexDirection: "column", gap: 8, width, maxHeight, overflow: "auto", scrollbarWidth: "thin", scrollbarColor: `${palette.border} ${palette.surface}` }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, width, minHeight: maxHeight, maxHeight, overflow: "auto", scrollbarWidth: "thin", scrollbarColor: `${palette.border} ${palette.surface}` }}>
         <div onKeyDown={(e) => e.key === "Enter" && add()}>
           <TextBox singleLine value={title} onChange={setTitle} placeholder="Title" />
         </div>
