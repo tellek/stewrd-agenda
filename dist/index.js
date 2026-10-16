@@ -1,7 +1,8 @@
 // index.tsx
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { Fragment, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 // model.ts
+var COMBINED_ID = "combined";
 var DAY = 24 * 60 * 60 * 1e3;
 var PRIORITIES = ["none", "normal", "medium", "high"];
 var ESCALATION = {
@@ -12,7 +13,8 @@ var ESCALATION = {
 var DEFAULT_SETTINGS = {
   completedRetentionDays: 30,
   reportedPriorities: ["normal", "medium", "high"],
-  sortAfterPriority: "createdAsc"
+  sortAfterPriority: "createdAsc",
+  showCombinedTab: true
 };
 var STATUS = {
   none: "idle",
@@ -67,14 +69,29 @@ function sortActive(items, order) {
 function sortDone(items) {
   return items.filter((item) => item.done).sort((a, b) => (b.doneAt ?? 0) - (a.doneAt ?? 0));
 }
-function moveTab(tabs, fromId, toId) {
-  const from = tabs.findIndex((t) => t.id === fromId);
-  const to = tabs.findIndex((t) => t.id === toId);
-  if (from < 0 || to < 0 || from === to) return tabs;
-  const next = tabs.slice();
-  const [moved] = next.splice(from, 1);
-  next.splice(to, 0, moved);
+function reconcileOrder(data) {
+  const known = /* @__PURE__ */ new Set([COMBINED_ID, ...data.tabs.map((t) => t.id)]);
+  const order = (data.tabOrder ?? []).filter((id, i, all) => known.has(id) && all.indexOf(id) === i);
+  if (!order.includes(COMBINED_ID)) order.unshift(COMBINED_ID);
+  for (const tab of data.tabs) if (!order.includes(tab.id)) order.push(tab.id);
+  return order;
+}
+function orderedTabs(data, showCombined) {
+  const byId = new Map([[COMBINED_ID, { id: COMBINED_ID, name: "Combined" }], ...data.tabs.map((t) => [t.id, t])]);
+  const withCombined = showCombined && data.tabs.length > 1;
+  return reconcileOrder(data).filter((id) => withCombined || id !== COMBINED_ID).map((id) => byId.get(id));
+}
+function moveTabBefore(order, id, beforeId) {
+  if (id === beforeId || !order.includes(id)) return order;
+  const next = order.filter((o) => o !== id);
+  next.splice(beforeId === null ? next.length : next.indexOf(beforeId), 0, id);
   return next;
+}
+function resolveActiveTab(activeId, tabs) {
+  return tabs.some((t) => t.id === activeId) ? activeId : tabs[0].id;
+}
+function itemsForTab(items, tabId) {
+  return tabId === COMBINED_ID ? items : items.filter((i) => i.tabId === tabId);
 }
 
 // settings.ts
@@ -87,7 +104,8 @@ async function loadSettings(pluginId) {
     return {
       completedRetentionDays: typeof days === "number" && days >= 0 ? days : DEFAULT_SETTINGS.completedRetentionDays,
       reportedPriorities: Array.isArray(parsed.reportedPriorities) ? parsed.reportedPriorities.filter((p) => PRIORITIES.includes(p)) : DEFAULT_SETTINGS.reportedPriorities,
-      sortAfterPriority: SORT_ORDERS.includes(parsed.sortAfterPriority) ? parsed.sortAfterPriority : DEFAULT_SETTINGS.sortAfterPriority
+      sortAfterPriority: SORT_ORDERS.includes(parsed.sortAfterPriority) ? parsed.sortAfterPriority : DEFAULT_SETTINGS.sortAfterPriority,
+      showCombinedTab: typeof parsed.showCombinedTab === "boolean" ? parsed.showCombinedTab : DEFAULT_SETTINGS.showCombinedTab
     };
   } catch {
     return DEFAULT_SETTINGS;
@@ -159,12 +177,14 @@ async function init(pluginApi) {
   api = pluginApi;
   const settings = await loadSettings("agenda");
   const stored = await api.storage.get(KEY);
-  const data = stored?.tabs?.length ? stored : { tabs: [{ id: newId(), name: "General" }], items: stored?.items ?? [] };
-  set({ data, activeTabId: data.tabs[0].id, settings });
+  const base = stored?.tabs?.length ? stored : { tabs: [{ id: newId(), name: "General" }], items: stored?.items ?? [] };
+  const data = { ...base, tabOrder: reconcileOrder(base) };
+  set({ data, activeTabId: resolveActiveTab(data.activeTabId, orderedTabs(data, settings.showCombinedTab)), settings });
   refresh();
 }
 async function reloadSettings() {
-  set({ ...state, settings: await loadSettings("agenda") });
+  const settings = await loadSettings("agenda");
+  set({ ...state, settings, activeTabId: resolveActiveTab(state.activeTabId, orderedTabs(state.data, settings.showCombinedTab)) });
   refresh();
 }
 function refresh() {
@@ -187,6 +207,7 @@ function update(fn) {
 }
 function setActiveTab(id) {
   set({ ...state, activeTabId: id });
+  update((d) => ({ ...d, activeTabId: id }));
 }
 function flush() {
   if (saveTimer) clearTimeout(saveTimer);
@@ -217,6 +238,7 @@ function Component({ api: api2 }) {
   const { TextButton, StatusDot } = api2.ui;
   const [dialog, setDialog] = useState(null);
   const [dragId, setDragId] = useState(null);
+  const [dropBefore, setDropBefore] = useState(void 0);
   const rootRef = useRef(null);
   const [, setThemeVersion] = useState(0);
   useEffect(() => {
@@ -228,7 +250,8 @@ function Component({ api: api2 }) {
       unsubscribe();
     };
   }, [api2]);
-  const tabItems = data.items.filter((i) => i.tabId === activeTabId);
+  const tabs = orderedTabs(data, settings.showCombinedTab);
+  const tabItems = itemsForTab(data.items, activeTabId);
   const active = sortActive(tabItems, settings.sortAfterPriority);
   const done = sortDone(tabItems);
   const tabStyle = (selected) => ({
@@ -242,44 +265,70 @@ function Component({ api: api2 }) {
     e.preventDefault();
     e.stopPropagation();
   };
-  return /* @__PURE__ */ jsxs("div", { ref: rootRef, style: { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", gap: 8, position: "relative" }, children: [
+  const endDrag = () => {
+    setDragId(null);
+    setDropBefore(void 0);
+  };
+  const dropTab = (e) => {
+    stopDrag(e);
+    if (dragId && dropBefore !== void 0) update((d) => ({ ...d, tabOrder: moveTabBefore(reconcileOrder(d), dragId, dropBefore) }));
+    endDrag();
+  };
+  const pipe = /* @__PURE__ */ jsx("div", { style: { width: 2, alignSelf: "stretch", background: palette.accent, flexShrink: 0 } });
+  return /* @__PURE__ */ jsxs("div", { ref: rootRef, "data-agenda-root": true, style: { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", gap: 8, position: "relative" }, children: [
     /* @__PURE__ */ jsxs("div", { style: { display: "flex", alignItems: "center", gap: 8, borderBottom: `1px solid ${palette.border}` }, children: [
-      /* @__PURE__ */ jsxs("div", { style: { display: "flex", alignItems: "center", flex: 1, minWidth: 0, overflowX: "auto" }, children: [
-        data.tabs.map((tab) => /* @__PURE__ */ jsx(
-          "div",
-          {
-            draggable: true,
-            style: tabStyle(tab.id === activeTabId),
-            onClick: () => setActiveTab(tab.id),
-            onContextMenu: (e) => {
-              e.preventDefault();
-              setDialog({ kind: "rename-tab", id: tab.id });
-            },
-            onDragStart: (e) => {
-              e.dataTransfer.setData(TAB_DRAG_TYPE, tab.id);
-              e.dataTransfer.effectAllowed = "move";
-              setDragId(tab.id);
-            },
-            onDragEnter: stopDrag,
-            onDragOver: stopDrag,
-            onDrop: (e) => {
-              stopDrag(e);
-              if (dragId) update((d) => ({ ...d, tabs: moveTab(d.tabs, dragId, tab.id) }));
-              setDragId(null);
-            },
-            onDragEnd: () => setDragId(null),
-            children: /* @__PURE__ */ jsxs("span", { style: { display: "inline-flex", alignItems: "center", gap: 6 }, children: [
-              /* @__PURE__ */ jsx(StatusDot, { color: statusFor(topPriority(data.items.filter((i) => i.tabId === tab.id), settings.reportedPriorities)) }),
-              tab.name
-            ] })
+      /* @__PURE__ */ jsxs(
+        "div",
+        {
+          style: { display: "flex", alignItems: "center", flex: 1, minWidth: 0, overflowX: "auto" },
+          onDragEnter: stopDrag,
+          onDragOver: (e) => {
+            stopDrag(e);
+            if (dragId) setDropBefore(null);
           },
-          tab.id
-        )),
-        /* @__PURE__ */ jsx(TextButton, { label: "+", bordered: false, onClick: () => setDialog({ kind: "add-tab" }) })
-      ] }),
+          onDrop: dropTab,
+          children: [
+            tabs.map((tab, index) => /* @__PURE__ */ jsxs(Fragment, { children: [
+              dragId && dropBefore === tab.id && pipe,
+              /* @__PURE__ */ jsx(
+                "div",
+                {
+                  draggable: true,
+                  style: tabStyle(tab.id === activeTabId),
+                  onClick: () => setActiveTab(tab.id),
+                  onContextMenu: (e) => {
+                    e.preventDefault();
+                    if (tab.id !== COMBINED_ID) setDialog({ kind: "rename-tab", id: tab.id });
+                  },
+                  onDragStart: (e) => {
+                    e.dataTransfer.setData(TAB_DRAG_TYPE, tab.id);
+                    e.dataTransfer.effectAllowed = "move";
+                    setDragId(tab.id);
+                  },
+                  onDragEnter: stopDrag,
+                  onDragOver: (e) => {
+                    stopDrag(e);
+                    if (!dragId) return;
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    setDropBefore(e.clientX < rect.left + rect.width / 2 ? tab.id : tabs[index + 1]?.id ?? null);
+                  },
+                  onDrop: dropTab,
+                  onDragEnd: endDrag,
+                  children: /* @__PURE__ */ jsxs("span", { style: { display: "inline-flex", alignItems: "center", gap: 6 }, children: [
+                    /* @__PURE__ */ jsx(StatusDot, { color: statusFor(topPriority(itemsForTab(data.items, tab.id), settings.reportedPriorities)) }),
+                    tab.name
+                  ] })
+                }
+              )
+            ] }, tab.id)),
+            dragId && dropBefore === null && pipe,
+            /* @__PURE__ */ jsx(TextButton, { label: "+", bordered: false, onClick: () => setDialog({ kind: "add-tab" }) })
+          ]
+        }
+      ),
       /* @__PURE__ */ jsx(TextButton, { label: "Add Item", variant: "primary", onClick: () => setDialog({ kind: "add-item" }) })
     ] }),
-    /* @__PURE__ */ jsxs("div", { style: { flex: 1, minHeight: 0, overflow: "auto", scrollbarWidth: "thin", scrollbarColor: `${palette.border} ${palette.surface}` }, children: [
+    /* @__PURE__ */ jsxs("div", { "data-agenda-list": true, style: { flex: 1, minHeight: 0, overflow: "auto", scrollbarWidth: "thin", scrollbarColor: `${palette.border} ${palette.surface}` }, children: [
       active.map((item) => /* @__PURE__ */ jsx(Row, { api: api2, item }, item.id)),
       active.length === 0 && /* @__PURE__ */ jsx("div", { style: { color: palette.textMuted, padding: 8 }, children: "Nothing To Do" }),
       done.length > 0 && /* @__PURE__ */ jsxs("div", { style: { marginTop: 24 }, children: [
@@ -296,7 +345,7 @@ function Component({ api: api2 }) {
         onClose: () => setDialog(null),
         onSave: (name) => {
           const id = newId();
-          update((d) => ({ ...d, tabs: [...d.tabs, { id, name }] }));
+          update((d) => ({ ...d, tabs: [...d.tabs, { id, name }], tabOrder: [...reconcileOrder(d), id] }));
           setActiveTab(id);
         }
       }
@@ -311,7 +360,7 @@ function Component({ api: api2 }) {
         onSave: (name) => update((d) => ({ ...d, tabs: d.tabs.map((t) => t.id === dialog.id ? { ...t, name } : t) }))
       }
     ),
-    dialog?.kind === "add-item" && /* @__PURE__ */ jsx(ItemDialog, { api: api2, tabId: activeTabId, width: Math.round((rootRef.current?.clientWidth ?? 0) / 2) - 34, onClose: () => setDialog(null) })
+    dialog?.kind === "add-item" && /* @__PURE__ */ jsx(ItemDialog, { api: api2, tabId: activeTabId === COMBINED_ID ? data.tabs[0].id : activeTabId, width: Math.round((rootRef.current?.clientWidth ?? 0) / 2) - 34, onClose: () => setDialog(null) })
   ] });
 }
 function NameDialog(props) {
@@ -358,6 +407,19 @@ function Row({ api: api2, item }) {
   const { Checkbox, StatusDot, Menu, TextBox, TextButton, Dropdown } = api2.ui;
   const palette = api2.theme.palette;
   const [open, setOpen] = useState(false);
+  const rowRef = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const onMouseDown = (e) => {
+      const row = rowRef.current;
+      const target = e.target;
+      if (!row || row.contains(target) || !row.closest("[data-agenda-root]")?.contains(target)) return;
+      if (target.hasAttribute("data-agenda-list") && e.clientX - target.getBoundingClientRect().left >= target.clientWidth) return;
+      setOpen(false);
+    };
+    document.addEventListener("mousedown", onMouseDown);
+    return () => document.removeEventListener("mousedown", onMouseDown);
+  }, [open]);
   const patch = (changes) => update((d) => ({ ...d, items: d.items.map((i) => i.id === item.id ? { ...i, ...changes } : i) }));
   const changePriority = (priority) => update((d) => ({ ...d, items: d.items.map((i) => i.id === item.id ? setPriority(i, priority, Date.now()) : i) }));
   const remove = async () => {
@@ -369,7 +431,7 @@ function Row({ api: api2, item }) {
     if (ok) update((d) => ({ ...d, items: d.items.filter((i) => i.id !== item.id) }));
   };
   const dot = /* @__PURE__ */ jsx(StatusDot, { color: statusFor(item.priority) });
-  return /* @__PURE__ */ jsxs("div", { style: { padding: "4px 8px", borderBottom: `1px solid ${palette.border}`, color: item.done ? palette.textMuted : palette.text }, children: [
+  return /* @__PURE__ */ jsxs("div", { ref: rowRef, style: { padding: "4px 8px", borderBottom: `1px solid ${palette.border}`, color: item.done ? palette.textMuted : palette.text }, children: [
     /* @__PURE__ */ jsxs("div", { style: { display: "flex", alignItems: "center", gap: 8, minHeight: 32 }, children: [
       item.done ? dot : /* @__PURE__ */ jsx(
         Menu,
