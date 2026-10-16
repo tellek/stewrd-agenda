@@ -241,7 +241,9 @@ function ScheduleDialog(props: { api: PluginApi; defaultTabId: string; width: nu
           <TextBox singleLine value={title} onChange={setTitle} placeholder="Title" />
         </div>
         <TextBox rows={3} value={description} onChange={setDescription} placeholder="Description (Optional)" />
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 160px)", gap: 8, justifyContent: "center" }}>
+        {/* The host pickers size to their content; stretch them to the column. */}
+        <style>{`.agenda-grid > div { display: block !important; width: 100%; } .agenda-grid > div > button, .agenda-grid > input { width: 100%; }`}</style>
+        <div className="agenda-grid" style={{ display: "grid", gridTemplateColumns: "repeat(2, 160px)", gap: 8, justifyContent: "center" }}>
           <Dropdown options={repeatOptions} value={repeat} onChange={(v) => setRepeat(v as Repeat)} />
           <Dropdown options={priorityOptions} value={priority} onChange={(v) => setPriorityValue(v as Priority)} />
           <DatePicker value={date} onChange={setDate} placeholder="Pick A Date" />
