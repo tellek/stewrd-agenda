@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { DAY, escalate, moveTab, purgeDone, setDone, setPriority, sortActive, statusFor, topPriority } from "./model.ts";
+import { DAY, escalate, itemsForTab, moveTabBefore, orderedTabs, purgeDone, reconcileOrder, resolveActiveTab, setDone, setPriority, sortActive, statusFor, topPriority } from "./model.ts";
 import type { Item, Priority } from "./model.ts";
 
 const item = (over: Partial<Item> = {}): Item => ({
@@ -84,8 +84,40 @@ test("sortActive orders by priority then the configured order", () => {
   assert.deepEqual(ids("titleDesc"), ["3", "1", "2"]);
 });
 
-test("moveTab reorders", () => {
-  const tabs = [{ id: "1", name: "a" }, { id: "2", name: "b" }, { id: "3", name: "c" }];
-  assert.deepEqual(moveTab(tabs, "1", "3").map((t) => t.id), ["2", "3", "1"]);
-  assert.equal(moveTab(tabs, "1", "1"), tabs);
+const tab = (id: string) => ({ id, name: id });
+
+test("moveTabBefore moves left, right, to the end and ignores self", () => {
+  const order = ["combined", "a", "b", "c"];
+  assert.deepEqual(moveTabBefore(order, "c", "a"), ["combined", "c", "a", "b"]);
+  assert.deepEqual(moveTabBefore(order, "a", "c"), ["combined", "b", "a", "c"]);
+  assert.deepEqual(moveTabBefore(order, "a", null), ["combined", "b", "c", "a"]);
+  assert.equal(moveTabBefore(order, "a", "a"), order);
+});
+
+test("reconcileOrder drops unknown ids, appends missing tabs and puts Combined first", () => {
+  const data = { tabs: [tab("a"), tab("b"), tab("c")], items: [], tabOrder: ["b", "gone", "a"] };
+  assert.deepEqual(reconcileOrder(data), ["combined", "b", "a", "c"]);
+  assert.deepEqual(reconcileOrder({ ...data, tabOrder: ["a", "combined", "b", "c"] }), ["a", "combined", "b", "c"]);
+});
+
+test("orderedTabs shows Combined only when enabled and more than one tab", () => {
+  const two = { tabs: [tab("a"), tab("b")], items: [] };
+  const ids = (d: typeof two, show: boolean) => orderedTabs(d, show).map((t) => t.id);
+  assert.deepEqual(ids(two, true), ["combined", "a", "b"]);
+  assert.deepEqual(ids(two, false), ["a", "b"]);
+  assert.deepEqual(ids({ tabs: [tab("a")], items: [] }, true), ["a"]);
+  assert.deepEqual(ids({ ...two, tabs: [...two.tabs, tab("new")], tabOrder: ["combined", "b", "a"] }, true), ["combined", "b", "a", "new"]);
+});
+
+test("resolveActiveTab falls back to the first displayed tab", () => {
+  const tabs = [tab("a"), tab("b")];
+  assert.equal(resolveActiveTab("b", tabs), "b");
+  assert.equal(resolveActiveTab("combined", tabs), "a");
+  assert.equal(resolveActiveTab(undefined, tabs), "a");
+});
+
+test("itemsForTab returns every item for Combined", () => {
+  const items = [item({ id: "1", tabId: "a" }), item({ id: "2", tabId: "b" })];
+  assert.equal(itemsForTab(items, "combined").length, 2);
+  assert.deepEqual(itemsForTab(items, "b").map((i) => i.id), ["2"]);
 });

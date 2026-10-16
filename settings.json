@@ -9,5 +9,8 @@
   "reportedPriorities": ["normal", "medium", "high"],
 
   "_sortAfterPriority": "Order of items within the same priority. One of: createdAsc (oldest first), createdDesc (newest first), titleAsc (A to Z), titleDesc (Z to A).",
-  "sortAfterPriority": "createdAsc"
+  "sortAfterPriority": "createdAsc",
+
+  "_showCombinedTab": "Show a Combined tab with the items of every tab. Only appears when there is more than one tab. true or false.",
+  "showCombinedTab": true
 }

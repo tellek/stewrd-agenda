@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { Fragment, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { CSSProperties } from "react";
 import type { PluginApi, PluginContext } from "stewrd-plugin-api";
-import { PRIORITIES, moveTab, priorityLabel, setDone, setPriority, sortActive, sortDone, statusFor, topPriority } from "./model.ts";
+import { COMBINED_ID, PRIORITIES, itemsForTab, moveTabBefore, orderedTabs, priorityLabel, reconcileOrder, setDone, setPriority, sortActive, sortDone, statusFor, topPriority } from "./model.ts";
 import type { Item, Priority } from "./model.ts";
 import { flush, getState, init, newId, refresh, reloadSettings, setActiveTab, subscribe, update } from "./store.ts";
 import { setViewing } from "./status.ts";
@@ -28,6 +28,7 @@ export function Component({ api }: { api: PluginApi }) {
   const { TextButton, StatusDot } = api.ui;
   const [dialog, setDialog] = useState<Dialog>(null);
   const [dragId, setDragId] = useState<string | null>(null);
+  const [dropBefore, setDropBefore] = useState<string | null | undefined>(undefined); // undefined: no drop target
   const rootRef = useRef<HTMLDivElement>(null);
   const [, setThemeVersion] = useState(0); // re-render on theme switches
 
@@ -41,7 +42,8 @@ export function Component({ api }: { api: PluginApi }) {
     };
   }, [api]);
 
-  const tabItems = data.items.filter((i) => i.tabId === activeTabId);
+  const tabs = orderedTabs(data, settings.showCombinedTab);
+  const tabItems = itemsForTab(data.items, activeTabId);
   const active = sortActive(tabItems, settings.sortAfterPriority);
   const done = sortDone(tabItems);
 
@@ -58,46 +60,71 @@ export function Component({ api }: { api: PluginApi }) {
     e.stopPropagation(); // the host pane has its own drop handlers
   };
 
+  const endDrag = () => {
+    setDragId(null);
+    setDropBefore(undefined);
+  };
+
+  const dropTab = (e: React.DragEvent) => {
+    stopDrag(e);
+    if (dragId && dropBefore !== undefined) update((d) => ({ ...d, tabOrder: moveTabBefore(reconcileOrder(d), dragId, dropBefore) }));
+    endDrag();
+  };
+
+  const pipe = <div style={{ width: 2, alignSelf: "stretch", background: palette.accent, flexShrink: 0 }} />;
+
   return (
-    <div ref={rootRef} style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", gap: 8, position: "relative" }}>
+    <div ref={rootRef} data-agenda-root style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", gap: 8, position: "relative" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, borderBottom: `1px solid ${palette.border}` }}>
-        <div style={{ display: "flex", alignItems: "center", flex: 1, minWidth: 0, overflowX: "auto" }}>
-          {data.tabs.map((tab) => (
-            <div
-              key={tab.id}
-              draggable
-              style={tabStyle(tab.id === activeTabId)}
-              onClick={() => setActiveTab(tab.id)}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                setDialog({ kind: "rename-tab", id: tab.id });
-              }}
-              onDragStart={(e) => {
-                e.dataTransfer.setData(TAB_DRAG_TYPE, tab.id);
-                e.dataTransfer.effectAllowed = "move";
-                setDragId(tab.id);
-              }}
-              onDragEnter={stopDrag}
-              onDragOver={stopDrag}
-              onDrop={(e) => {
-                stopDrag(e);
-                if (dragId) update((d) => ({ ...d, tabs: moveTab(d.tabs, dragId, tab.id) }));
-                setDragId(null);
-              }}
-              onDragEnd={() => setDragId(null)}
-            >
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                <StatusDot color={statusFor(topPriority(data.items.filter((i) => i.tabId === tab.id), settings.reportedPriorities))} />
-                {tab.name}
-              </span>
-            </div>
+        <div
+          style={{ display: "flex", alignItems: "center", flex: 1, minWidth: 0, overflowX: "auto" }}
+          onDragEnter={stopDrag}
+          onDragOver={(e) => {
+            stopDrag(e);
+            if (dragId) setDropBefore(null); // over the empty strip: drop at the end
+          }}
+          onDrop={dropTab}
+        >
+          {tabs.map((tab, index) => (
+            <Fragment key={tab.id}>
+              {dragId && dropBefore === tab.id && pipe}
+              <div
+                draggable
+                style={tabStyle(tab.id === activeTabId)}
+                onClick={() => setActiveTab(tab.id)}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  if (tab.id !== COMBINED_ID) setDialog({ kind: "rename-tab", id: tab.id });
+                }}
+                onDragStart={(e) => {
+                  e.dataTransfer.setData(TAB_DRAG_TYPE, tab.id);
+                  e.dataTransfer.effectAllowed = "move";
+                  setDragId(tab.id);
+                }}
+                onDragEnter={stopDrag}
+                onDragOver={(e) => {
+                  stopDrag(e);
+                  if (!dragId) return;
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  setDropBefore(e.clientX < rect.left + rect.width / 2 ? tab.id : (tabs[index + 1]?.id ?? null));
+                }}
+                onDrop={dropTab}
+                onDragEnd={endDrag}
+              >
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <StatusDot color={statusFor(topPriority(itemsForTab(data.items, tab.id), settings.reportedPriorities))} />
+                  {tab.name}
+                </span>
+              </div>
+            </Fragment>
           ))}
+          {dragId && dropBefore === null && pipe}
           <TextButton label="+" bordered={false} onClick={() => setDialog({ kind: "add-tab" })} />
         </div>
         <TextButton label="Add Item" variant="primary" onClick={() => setDialog({ kind: "add-item" })} />
       </div>
 
-      <div style={{ flex: 1, minHeight: 0, overflow: "auto", scrollbarWidth: "thin", scrollbarColor: `${palette.border} ${palette.surface}` }}>
+      <div data-agenda-list style={{ flex: 1, minHeight: 0, overflow: "auto", scrollbarWidth: "thin", scrollbarColor: `${palette.border} ${palette.surface}` }}>
         {active.map((item) => (
           <Row key={item.id} api={api} item={item} />
         ))}
@@ -120,7 +147,7 @@ export function Component({ api }: { api: PluginApi }) {
           onClose={() => setDialog(null)}
           onSave={(name) => {
             const id = newId();
-            update((d) => ({ ...d, tabs: [...d.tabs, { id, name }] }));
+            update((d) => ({ ...d, tabs: [...d.tabs, { id, name }], tabOrder: [...reconcileOrder(d), id] }));
             setActiveTab(id);
           }}
         />
@@ -134,7 +161,7 @@ export function Component({ api }: { api: PluginApi }) {
           onSave={(name) => update((d) => ({ ...d, tabs: d.tabs.map((t) => (t.id === dialog.id ? { ...t, name } : t)) }))}
         />
       )}
-      {dialog?.kind === "add-item" && <ItemDialog api={api} tabId={activeTabId} width={Math.round((rootRef.current?.clientWidth ?? 0) / 2) - 34} onClose={() => setDialog(null)} />}
+      {dialog?.kind === "add-item" && <ItemDialog api={api} tabId={activeTabId === COMBINED_ID ? data.tabs[0].id : activeTabId}width={Math.round((rootRef.current?.clientWidth ?? 0) / 2) - 34} onClose={() => setDialog(null)} />}
     </div>
   );
 }
@@ -195,6 +222,22 @@ function Row({ api, item }: { api: PluginApi; item: Item }) {
   const { Checkbox, StatusDot, Menu, TextBox, TextButton, Dropdown } = api.ui;
   const palette = api.theme.palette;
   const [open, setOpen] = useState(false);
+  const rowRef = useRef<HTMLDivElement>(null);
+
+  // Collapse on a click outside the row. Clicks outside the plugin (host modals) and on the list's scrollbar don't count.
+  useEffect(() => {
+    if (!open) return;
+    const onMouseDown = (e: MouseEvent) => {
+      const row = rowRef.current;
+      const target = e.target as Element;
+      if (!row || row.contains(target) || !row.closest("[data-agenda-root]")?.contains(target)) return;
+      if (target.hasAttribute("data-agenda-list") && e.clientX - target.getBoundingClientRect().left >= target.clientWidth) return;
+      setOpen(false);
+    };
+    document.addEventListener("mousedown", onMouseDown);
+    return () => document.removeEventListener("mousedown", onMouseDown);
+  }, [open]);
+
   const patch = (changes: Partial<Item>) =>
     update((d) => ({ ...d, items: d.items.map((i) => (i.id === item.id ? { ...i, ...changes } : i)) }));
   const changePriority = (priority: Priority) =>
@@ -210,7 +253,7 @@ function Row({ api, item }: { api: PluginApi; item: Item }) {
   const dot = <StatusDot color={statusFor(item.priority)} />;
 
   return (
-    <div style={{ padding: "4px 8px", borderBottom: `1px solid ${palette.border}`, color: item.done ? palette.textMuted : palette.text }}>
+    <div ref={rowRef} style={{ padding: "4px 8px", borderBottom: `1px solid ${palette.border}`, color: item.done ? palette.textMuted : palette.text }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, minHeight: 32 }}>
         {item.done ? (
           dot

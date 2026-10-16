@@ -23,7 +23,13 @@ export interface Tab {
 export interface Data {
   tabs: Tab[];
   items: Item[];
+  /** Display order of every tab id, including COMBINED_ID. */
+  tabOrder?: string[];
+  activeTabId?: string;
 }
+
+/** Virtual tab showing the items of all tabs; not stored in Data.tabs. */
+export const COMBINED_ID = "combined";
 
 export const DAY = 24 * 60 * 60 * 1000;
 export const PRIORITIES: Priority[] = ["none", "normal", "medium", "high"];
@@ -44,12 +50,15 @@ export interface Settings {
   reportedPriorities: Priority[];
   /** Order of items sharing a priority. */
   sortAfterPriority: SortOrder;
+  /** Show a Combined tab (all items) when there is more than one tab. */
+  showCombinedTab: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   completedRetentionDays: 30,
   reportedPriorities: ["normal", "medium", "high"],
   sortAfterPriority: "createdAsc",
+  showCombinedTab: true,
 };
 
 const STATUS: Record<Priority, StatusColor> = {
@@ -127,12 +136,37 @@ export function sortDone(items: Item[]): Item[] {
   return items.filter((item) => item.done).sort((a, b) => (b.doneAt ?? 0) - (a.doneAt ?? 0));
 }
 
-export function moveTab(tabs: Tab[], fromId: string, toId: string): Tab[] {
-  const from = tabs.findIndex((t) => t.id === fromId);
-  const to = tabs.findIndex((t) => t.id === toId);
-  if (from < 0 || to < 0 || from === to) return tabs;
-  const next = tabs.slice();
-  const [moved] = next.splice(from, 1);
-  next.splice(to, 0, moved);
+/** Saved order with unknown ids dropped, missing tabs appended and Combined defaulting to the left. */
+export function reconcileOrder(data: Data): string[] {
+  const known = new Set([COMBINED_ID, ...data.tabs.map((t) => t.id)]);
+  const order = (data.tabOrder ?? []).filter((id, i, all) => known.has(id) && all.indexOf(id) === i);
+  if (!order.includes(COMBINED_ID)) order.unshift(COMBINED_ID);
+  for (const tab of data.tabs) if (!order.includes(tab.id)) order.push(tab.id);
+  return order;
+}
+
+/** Tabs as displayed; Combined only appears when enabled and there is more than one tab. */
+export function orderedTabs(data: Data, showCombined: boolean): Tab[] {
+  const byId = new Map<string, Tab>([[COMBINED_ID, { id: COMBINED_ID, name: "Combined" }], ...data.tabs.map((t): [string, Tab] => [t.id, t])]);
+  const withCombined = showCombined && data.tabs.length > 1;
+  return reconcileOrder(data)
+    .filter((id) => withCombined || id !== COMBINED_ID)
+    .map((id) => byId.get(id)!);
+}
+
+/** Moves a tab in front of another tab, or to the end when beforeId is null. */
+export function moveTabBefore(order: string[], id: string, beforeId: string | null): string[] {
+  if (id === beforeId || !order.includes(id)) return order;
+  const next = order.filter((o) => o !== id);
+  next.splice(beforeId === null ? next.length : next.indexOf(beforeId), 0, id);
   return next;
+}
+
+/** The saved active tab if it is displayed, otherwise the first displayed tab. */
+export function resolveActiveTab(activeId: string | undefined, tabs: Tab[]): string {
+  return tabs.some((t) => t.id === activeId) ? activeId! : tabs[0].id;
+}
+
+export function itemsForTab(items: Item[], tabId: string): Item[] {
+  return tabId === COMBINED_ID ? items : items.filter((i) => i.tabId === tabId);
 }

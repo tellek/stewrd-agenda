@@ -18,6 +18,7 @@ export async function loadSettings(pluginId: string): Promise<Settings> {
       sortAfterPriority: SORT_ORDERS.includes(parsed.sortAfterPriority as SortOrder)
         ? (parsed.sortAfterPriority as SortOrder)
         : DEFAULT_SETTINGS.sortAfterPriority,
+      showCombinedTab: typeof parsed.showCombinedTab === "boolean" ? parsed.showCombinedTab : DEFAULT_SETTINGS.showCombinedTab,
     };
   } catch {
     return DEFAULT_SETTINGS;
