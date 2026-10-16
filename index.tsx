@@ -241,11 +241,9 @@ function ScheduleDialog(props: { api: PluginApi; defaultTabId: string; width: nu
           <TextBox singleLine value={title} onChange={setTitle} placeholder="Title" />
         </div>
         <TextBox rows={3} value={description} onChange={setDescription} placeholder="Description (Optional)" />
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 160px)", gap: 8, justifyContent: "center" }}>
           <Dropdown options={repeatOptions} value={repeat} onChange={(v) => setRepeat(v as Repeat)} />
           <Dropdown options={priorityOptions} value={priority} onChange={(v) => setPriorityValue(v as Priority)} />
-        </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <DatePicker value={date} onChange={setDate} placeholder="Pick A Date" />
           <TimePicker value={time} onChange={setTime} />
         </div>

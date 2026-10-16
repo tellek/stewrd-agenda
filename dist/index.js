@@ -469,11 +469,9 @@ function ScheduleDialog(props) {
   return /* @__PURE__ */ jsx(InlineDialog, { open: true, title: "Schedule", onClose, children: /* @__PURE__ */ jsxs("div", { style: { display: "flex", flexDirection: "column", gap: 8, width, minHeight: maxHeight, maxHeight, overflow: "auto", scrollbarWidth: "thin", scrollbarColor: `${palette.border} ${palette.surface}` }, children: [
     /* @__PURE__ */ jsx("div", { onKeyDown: (e) => e.key === "Enter" && add(), children: /* @__PURE__ */ jsx(TextBox, { singleLine: true, value: title, onChange: setTitle, placeholder: "Title" }) }),
     /* @__PURE__ */ jsx(TextBox, { rows: 3, value: description, onChange: setDescription, placeholder: "Description (Optional)" }),
-    /* @__PURE__ */ jsxs("div", { style: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }, children: [
+    /* @__PURE__ */ jsxs("div", { style: { display: "grid", gridTemplateColumns: "repeat(2, 160px)", gap: 8, justifyContent: "center" }, children: [
       /* @__PURE__ */ jsx(Dropdown, { options: repeatOptions, value: repeat, onChange: (v) => setRepeat(v) }),
-      /* @__PURE__ */ jsx(Dropdown, { options: priorityOptions, value: priority, onChange: (v) => setPriorityValue(v) })
-    ] }),
-    /* @__PURE__ */ jsxs("div", { style: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }, children: [
+      /* @__PURE__ */ jsx(Dropdown, { options: priorityOptions, value: priority, onChange: (v) => setPriorityValue(v) }),
       /* @__PURE__ */ jsx(DatePicker, { value: date, onChange: setDate, placeholder: "Pick A Date" }),
       /* @__PURE__ */ jsx(TimePicker, { value: time, onChange: setTime })
     ] }),
