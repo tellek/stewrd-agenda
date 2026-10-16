@@ -443,12 +443,10 @@ function ScheduleDialog(props) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriorityValue] = useState("none");
-  const [tabId, setTabId] = useState(defaultTabId);
   const [repeat, setRepeat] = useState("once");
   const [date, setDate] = useState("");
   const [time, setTime] = useState("09:00");
   const schedules = (data.schedules ?? []).slice().sort((a, b) => a.nextAt - b.nextAt);
-  const tabOptions = data.tabs.map((t) => ({ label: t.name, value: t.id }));
   const valid = !!title.trim() && !!date && !!time;
   const add = () => {
     if (!valid) return;
@@ -457,7 +455,7 @@ function ScheduleDialog(props) {
       ...d,
       schedules: [
         ...d.schedules ?? [],
-        { id: newId(), tabId, title: title.trim(), description, priority, repeat, nextAt, anchorDay: new Date(nextAt).getDate() }
+        { id: newId(), tabId: defaultTabId, title: title.trim(), description, priority, repeat, nextAt, anchorDay: new Date(nextAt).getDate() }
       ]
     }));
     setTitle("");
@@ -472,9 +470,8 @@ function ScheduleDialog(props) {
     /* @__PURE__ */ jsx("div", { onKeyDown: (e) => e.key === "Enter" && add(), children: /* @__PURE__ */ jsx(TextBox, { singleLine: true, value: title, onChange: setTitle, placeholder: "Title" }) }),
     /* @__PURE__ */ jsx(TextBox, { rows: 3, value: description, onChange: setDescription, placeholder: "Description (Optional)" }),
     /* @__PURE__ */ jsxs("div", { style: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }, children: [
-      /* @__PURE__ */ jsx(Dropdown, { options: tabOptions, value: tabId, onChange: (v) => setTabId(v) }),
-      /* @__PURE__ */ jsx(Dropdown, { options: priorityOptions, value: priority, onChange: (v) => setPriorityValue(v) }),
-      /* @__PURE__ */ jsx(Dropdown, { options: repeatOptions, value: repeat, onChange: (v) => setRepeat(v) })
+      /* @__PURE__ */ jsx(Dropdown, { options: repeatOptions, value: repeat, onChange: (v) => setRepeat(v) }),
+      /* @__PURE__ */ jsx(Dropdown, { options: priorityOptions, value: priority, onChange: (v) => setPriorityValue(v) })
     ] }),
     /* @__PURE__ */ jsxs("div", { style: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }, children: [
       /* @__PURE__ */ jsx(DatePicker, { value: date, onChange: setDate, placeholder: "Pick A Date" }),

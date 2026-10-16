@@ -209,12 +209,10 @@ function ScheduleDialog(props: { api: PluginApi; defaultTabId: string; width: nu
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriorityValue] = useState<Priority>("none");
-  const [tabId, setTabId] = useState(defaultTabId);
   const [repeat, setRepeat] = useState<Repeat>("once");
   const [date, setDate] = useState("");
   const [time, setTime] = useState("09:00");
   const schedules = (data.schedules ?? []).slice().sort((a, b) => a.nextAt - b.nextAt);
-  const tabOptions = data.tabs.map((t) => ({ label: t.name, value: t.id }));
   const valid = !!title.trim() && !!date && !!time;
 
   const add = () => {
@@ -224,7 +222,7 @@ function ScheduleDialog(props: { api: PluginApi; defaultTabId: string; width: nu
       ...d,
       schedules: [
         ...(d.schedules ?? []),
-        { id: newId(), tabId, title: title.trim(), description, priority, repeat, nextAt, anchorDay: new Date(nextAt).getDate() },
+        { id: newId(), tabId: defaultTabId, title: title.trim(), description, priority, repeat, nextAt, anchorDay: new Date(nextAt).getDate() },
       ],
     }));
     setTitle("");
@@ -244,9 +242,8 @@ function ScheduleDialog(props: { api: PluginApi; defaultTabId: string; width: nu
         </div>
         <TextBox rows={3} value={description} onChange={setDescription} placeholder="Description (Optional)" />
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <Dropdown options={tabOptions} value={tabId} onChange={(v) => setTabId(v as string)} />
-          <Dropdown options={priorityOptions} value={priority} onChange={(v) => setPriorityValue(v as Priority)} />
           <Dropdown options={repeatOptions} value={repeat} onChange={(v) => setRepeat(v as Repeat)} />
+          <Dropdown options={priorityOptions} value={priority} onChange={(v) => setPriorityValue(v as Priority)} />
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <DatePicker value={date} onChange={setDate} placeholder="Pick A Date" />
