@@ -165,3 +165,13 @@ test("an overdue recurring schedule fires once and moves past now", () => {
   assert.equal(out.items.length, 1);
   assert.ok(out.schedules![0].nextAt > now);
 });
+
+test("a schedule does not add an item while its previous one is still open", () => {
+  const d = data([sched({ repeat: "daily", nextAt: 1000 })]);
+  const first = fireDue(d, 2000);
+  const second = fireDue({ ...first, schedules: [{ ...first.schedules![0], nextAt: 3000 }] }, 4000);
+  assert.equal(second.items.length, 1);
+  assert.equal(second.schedules![0].nextAt > 4000, true);
+  const done = { ...second, items: second.items.map((i) => ({ ...i, done: true })), schedules: [{ ...second.schedules![0], nextAt: 5000 }] };
+  assert.equal(fireDue(done, 6000).items.length, 2);
+});

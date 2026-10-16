@@ -13,6 +13,8 @@ export interface Item {
   createdAt: number;
   done: boolean;
   doneAt?: number;
+  /** Set on items created by a schedule, so a still-open one blocks a duplicate. */
+  scheduleId?: string;
 }
 
 export interface Tab {
@@ -221,7 +223,9 @@ export function fireDue(data: Data, now: number): Data {
       remaining.push(s);
       continue;
     }
-    items.push({ id: crypto.randomUUID(), tabId: s.tabId, title: s.title, description: s.description, priority: s.priority, priorityAt: now, createdAt: now, done: false });
+    if (!items.some((i) => i.scheduleId === s.id && !i.done)) {
+      items.push({ id: crypto.randomUUID(), tabId: s.tabId, title: s.title, description: s.description, priority: s.priority, priorityAt: now, createdAt: now, done: false, scheduleId: s.id });
+    }
     if (s.repeat === "once") continue;
     let nextAt = s.nextAt;
     while (nextAt <= now) nextAt = nextOccurrence(nextAt, s.repeat, s.anchorDay);

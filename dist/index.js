@@ -122,7 +122,9 @@ function fireDue(data, now) {
       remaining.push(s);
       continue;
     }
-    items.push({ id: crypto.randomUUID(), tabId: s.tabId, title: s.title, description: s.description, priority: s.priority, priorityAt: now, createdAt: now, done: false });
+    if (!items.some((i) => i.scheduleId === s.id && !i.done)) {
+      items.push({ id: crypto.randomUUID(), tabId: s.tabId, title: s.title, description: s.description, priority: s.priority, priorityAt: now, createdAt: now, done: false, scheduleId: s.id });
+    }
     if (s.repeat === "once") continue;
     let nextAt = s.nextAt;
     while (nextAt <= now) nextAt = nextOccurrence(nextAt, s.repeat, s.anchorDay);
