@@ -400,7 +400,26 @@ function Component({ api: api2 }) {
         title: "Rename Tab",
         initial: data.tabs.find((t) => t.id === dialog.id)?.name ?? "",
         onClose: () => setDialog(null),
-        onSave: (name) => update((d) => ({ ...d, tabs: d.tabs.map((t) => t.id === dialog.id ? { ...t, name } : t) }))
+        onSave: (name) => update((d) => ({ ...d, tabs: d.tabs.map((t) => t.id === dialog.id ? { ...t, name } : t) })),
+        onDelete: data.tabs.length > 1 ? async () => {
+          const name = data.tabs.find((t) => t.id === dialog.id)?.name ?? "";
+          const ok = await api2.modal.confirm({
+            title: "Delete Tab",
+            message: `Permanently delete "${name}" and all of its items? This cannot be undone.`,
+            confirmLabel: "Delete"
+          });
+          if (!ok) return false;
+          const remaining = data.tabs.filter((t) => t.id !== dialog.id);
+          if (activeTabId === dialog.id) setActiveTab(remaining[0].id);
+          update((d) => ({
+            ...d,
+            tabs: d.tabs.filter((t) => t.id !== dialog.id),
+            items: d.items.filter((i) => i.tabId !== dialog.id),
+            schedules: (d.schedules ?? []).filter((s) => s.tabId !== dialog.id),
+            tabOrder: reconcileOrder(d).filter((id) => id !== dialog.id)
+          }));
+          return true;
+        } : void 0
       }
     ),
     dialog?.kind === "add-item" && /* @__PURE__ */ jsx(ItemDialog, { api: api2, tabId: activeTabId === COMBINED_ID ? data.tabs[0].id : activeTabId, width: Math.round((rootRef.current?.clientWidth ?? 0) / 2) - 34, onClose: () => setDialog(null) }),
@@ -494,6 +513,7 @@ function NameDialog(props) {
   return /* @__PURE__ */ jsx(InlineDialog, { open: true, title: props.title, onClose: props.onClose, children: /* @__PURE__ */ jsxs("div", { style: { display: "flex", flexDirection: "column", gap: 8 }, onKeyDown: (e) => e.key === "Enter" && save(), children: [
     /* @__PURE__ */ jsx(TextBox, { singleLine: true, value: name, onChange: setName, placeholder: "Name" }),
     /* @__PURE__ */ jsxs("div", { style: { display: "flex", gap: 8, justifyContent: "flex-end" }, children: [
+      props.onDelete && /* @__PURE__ */ jsx(TextButton, { label: "Delete Tab", variant: "secondary", onClick: async () => await props.onDelete() && props.onClose() }),
       /* @__PURE__ */ jsx(TextButton, { label: "Cancel", variant: "secondary", onClick: props.onClose }),
       /* @__PURE__ */ jsx(TextButton, { label: "Save", variant: "primary", disabled: !name.trim(), onClick: save })
     ] })

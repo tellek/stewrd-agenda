@@ -162,6 +162,29 @@ export function Component({ api }: { api: PluginApi }) {
           initial={data.tabs.find((t) => t.id === dialog.id)?.name ?? ""}
           onClose={() => setDialog(null)}
           onSave={(name) => update((d) => ({ ...d, tabs: d.tabs.map((t) => (t.id === dialog.id ? { ...t, name } : t)) }))}
+          onDelete={
+            data.tabs.length > 1
+              ? async () => {
+                  const name = data.tabs.find((t) => t.id === dialog.id)?.name ?? "";
+                  const ok = await api.modal.confirm({
+                    title: "Delete Tab",
+                    message: `Permanently delete "${name}" and all of its items? This cannot be undone.`,
+                    confirmLabel: "Delete",
+                  });
+                  if (!ok) return false;
+                  const remaining = data.tabs.filter((t) => t.id !== dialog.id);
+                  if (activeTabId === dialog.id) setActiveTab(remaining[0].id);
+                  update((d) => ({
+                    ...d,
+                    tabs: d.tabs.filter((t) => t.id !== dialog.id),
+                    items: d.items.filter((i) => i.tabId !== dialog.id),
+                    schedules: (d.schedules ?? []).filter((s) => s.tabId !== dialog.id),
+                    tabOrder: reconcileOrder(d).filter((id) => id !== dialog.id),
+                  }));
+                  return true;
+                }
+              : undefined
+          }
         />
       )}
       {dialog?.kind === "add-item" && <ItemDialog api={api} tabId={activeTabId === COMBINED_ID ? data.tabs[0].id : activeTabId}width={Math.round((rootRef.current?.clientWidth ?? 0) / 2) - 34} onClose={() => setDialog(null)} />}
@@ -252,7 +275,7 @@ function ScheduleDialog(props: { api: PluginApi; defaultTabId: string; width: nu
   );
 }
 
-function NameDialog(props: { api: PluginApi; title: string; initial: string; onClose: () => void; onSave: (name: string) => void }) {
+function NameDialog(props: { api: PluginApi; title: string; initial: string; onClose: () => void; onSave: (name: string) => void; onDelete?: () => Promise<boolean> }) {
   const { TextBox, TextButton, InlineDialog } = props.api.ui;
   const [name, setName] = useState(props.initial);
   const save = () => {
@@ -265,6 +288,9 @@ function NameDialog(props: { api: PluginApi; title: string; initial: string; onC
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }} onKeyDown={(e) => e.key === "Enter" && save()}>
         <TextBox singleLine value={name} onChange={setName} placeholder="Name" />
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          {props.onDelete && (
+            <TextButton label="Delete Tab" variant="secondary" onClick={async () => (await props.onDelete!()) && props.onClose()} />
+          )}
           <TextButton label="Cancel" variant="secondary" onClick={props.onClose} />
           <TextButton label="Save" variant="primary" disabled={!name.trim()} onClick={save} />
         </div>
