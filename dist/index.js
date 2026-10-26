@@ -135,6 +135,18 @@ function fireDue(data, now) {
 function itemsForTab(items, tabId) {
   return tabId === COMBINED_ID ? items : items.filter((i) => i.tabId === tabId);
 }
+function splitUrls(text) {
+  const parts = [];
+  let last = 0;
+  for (const m of text.matchAll(/https?:\/\/[^\s<>"]+/g)) {
+    const url = m[0].replace(/[.,;:!?)\]}'"]+$/, "");
+    if (m.index > last) parts.push({ text: text.slice(last, m.index) });
+    parts.push({ text: url, url });
+    last = m.index + url.length;
+  }
+  if (last < text.length) parts.push({ text: text.slice(last) });
+  return parts;
+}
 
 // settings.ts
 import { invoke } from "@tauri-apps/api/core";
@@ -542,7 +554,7 @@ function ItemDialog({ api: api2, tabId, width, onClose }) {
   ] }) });
 }
 function Row({ api: api2, item }) {
-  const { Checkbox, StatusDot, Menu, TextBox, TextButton, Dropdown } = api2.ui;
+  const { Checkbox, StatusDot, Menu, TextBox, TextButton, Dropdown, Link } = api2.ui;
   const palette = api2.theme.palette;
   const [open, setOpen] = useState(false);
   const rowRef = useRef(null);
@@ -585,7 +597,9 @@ function Row({ api: api2, item }) {
           onChange: (checked) => update((d) => ({ ...d, items: d.items.map((i) => i.id === item.id ? setDone(i, checked, Date.now()) : i) }))
         }
       ),
-      open ? /* @__PURE__ */ jsx("div", { style: { flex: 1, minWidth: 0 }, children: /* @__PURE__ */ jsx(TextBox, { singleLine: true, value: item.title, onChange: (title) => patch({ title }), placeholder: "Title" }) }) : /* @__PURE__ */ jsx("div", { style: { flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: item.done ? "line-through" : void 0 }, children: item.title }),
+      open ? /* @__PURE__ */ jsx("div", { style: { flex: 1, minWidth: 0 }, children: /* @__PURE__ */ jsx(TextBox, { singleLine: true, value: item.title, onChange: (title) => patch({ title }), placeholder: "Title" }) }) : /* @__PURE__ */ jsx("div", { style: { flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: item.done ? "line-through" : void 0 }, children: splitUrls(item.title).map(
+        (p, i) => p.url ? /* @__PURE__ */ jsx(Link, { label: p.text, onClick: () => api2.shell.exec("rundll32", ["url.dll,FileProtocolHandler", p.url]) }, i) : /* @__PURE__ */ jsx(Fragment, { children: p.text }, i)
+      ) }),
       /* @__PURE__ */ jsx(TextButton, { label: open ? "\u25B4" : "\u25BE", bordered: false, onClick: () => setOpen(!open) })
     ] }),
     open && /* @__PURE__ */ jsxs("div", { style: { display: "flex", flexDirection: "column", gap: 8, padding: "4px 0 8px" }, children: [

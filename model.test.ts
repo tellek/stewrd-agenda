@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { DAY, escalate, fireDue, itemsForTab, nextOccurrence, toTimestamp, moveTabBefore, orderedTabs, purgeDone, reconcileOrder, resolveActiveTab, setDone, setPriority, sortActive, statusFor, topPriority } from "./model.ts";
+import { DAY, splitUrls, escalate, fireDue, itemsForTab, nextOccurrence, toTimestamp, moveTabBefore, orderedTabs, purgeDone, reconcileOrder, resolveActiveTab, setDone, setPriority, sortActive, statusFor, topPriority } from "./model.ts";
 import type { Data, Item, Priority, Schedule } from "./model.ts";
 
 const item = (over: Partial<Item> = {}): Item => ({
@@ -174,4 +174,11 @@ test("a schedule does not add an item while its previous one is still open", () 
   assert.equal(second.schedules![0].nextAt > 4000, true);
   const done = { ...second, items: second.items.map((i) => ({ ...i, done: true })), schedules: [{ ...second.schedules![0], nextAt: 5000 }] };
   assert.equal(fireDue(done, 6000).items.length, 2);
+});
+
+test("splitUrls finds links and leaves trailing punctuation out", () => {
+  assert.deepEqual(splitUrls("see https://a.com/x?y=1, then"), [
+    { text: "see " }, { text: "https://a.com/x?y=1", url: "https://a.com/x?y=1" }, { text: ", then" },
+  ]);
+  assert.deepEqual(splitUrls("no link"), [{ text: "no link" }]);
 });

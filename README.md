@@ -9,6 +9,7 @@ A Stewrd plugin for tabbed to-do and agenda lists.
 - Click anywhere outside an expanded item to collapse it.
 - Items: title, optional description and priority. Check the box to complete; completed items sit greyed at the bottom for 30 days and can be restored.
 - Click the priority dot to change priority quickly. Expand a row to edit everything (autosaved) or delete it permanently.
+- Web links (http/https) in an item title are clickable and open in your default browser.
 - Priorities escalate automatically: High is immediate, Medium becomes High after a day, Normal becomes Medium after a week, None becomes Normal after a month.
 - each tab has its own status dot, and the sidebar icon follows the highest open priority: High is error, Medium is warning, Normal is in-progress, None is idle.
 

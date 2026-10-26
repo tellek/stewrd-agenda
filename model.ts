@@ -237,3 +237,19 @@ export function fireDue(data: Data, now: number): Data {
 export function itemsForTab(items: Item[], tabId: string): Item[] {
   return tabId === COMBINED_ID ? items : items.filter((i) => i.tabId === tabId);
 }
+
+export type TextPart = { text: string; url?: string };
+
+/** Splits text into plain and http(s) URL parts; trailing punctuation stays outside the URL. */
+export function splitUrls(text: string): TextPart[] {
+  const parts: TextPart[] = [];
+  let last = 0;
+  for (const m of text.matchAll(/https?:\/\/[^\s<>"]+/g)) {
+    const url = m[0].replace(/[.,;:!?)\]}'"]+$/, "");
+    if (m.index > last) parts.push({ text: text.slice(last, m.index) });
+    parts.push({ text: url, url });
+    last = m.index + url.length;
+  }
+  if (last < text.length) parts.push({ text: text.slice(last) });
+  return parts;
+}

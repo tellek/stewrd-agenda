@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { CSSProperties } from "react";
 import type { PluginApi, PluginContext } from "stewrd-plugin-api";
-import { COMBINED_ID, PRIORITIES, itemsForTab, moveTabBefore, orderedTabs, priorityLabel, reconcileOrder, repeatLabel, setDone, setPriority, sortActive, sortDone, statusFor, toTimestamp, topPriority } from "./model.ts";
+import { COMBINED_ID, PRIORITIES, itemsForTab, moveTabBefore, orderedTabs, priorityLabel, reconcileOrder, repeatLabel, setDone, setPriority, sortActive, sortDone, splitUrls, statusFor, toTimestamp, topPriority } from "./model.ts";
 import type { Item, Priority, Repeat } from "./model.ts";
 import { flush, getState, init, newId, refresh, reloadSettings, setActiveTab, subscribe, update } from "./store.ts";
 import { setViewing } from "./status.ts";
@@ -328,7 +328,7 @@ function ItemDialog({ api, tabId, width, onClose }: { api: PluginApi; tabId: str
 }
 
 function Row({ api, item }: { api: PluginApi; item: Item }) {
-  const { Checkbox, StatusDot, Menu, TextBox, TextButton, Dropdown } = api.ui;
+  const { Checkbox, StatusDot, Menu, TextBox, TextButton, Dropdown, Link } = api.ui;
   const palette = api.theme.palette;
   const [open, setOpen] = useState(false);
   const rowRef = useRef<HTMLDivElement>(null);
@@ -384,7 +384,13 @@ function Row({ api, item }: { api: PluginApi; item: Item }) {
           </div>
         ) : (
           <div style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: item.done ? "line-through" : undefined }}>
-            {item.title}
+            {splitUrls(item.title).map((p, i) =>
+              p.url ? (
+                <Link key={i} label={p.text} onClick={() => api.shell.exec("rundll32", ["url.dll,FileProtocolHandler", p.url!])} />
+              ) : (
+                <Fragment key={i}>{p.text}</Fragment>
+              ),
+            )}
           </div>
         )}
         <TextButton label={open ? "▴" : "▾"} bordered={false} onClick={() => setOpen(!open)} />
