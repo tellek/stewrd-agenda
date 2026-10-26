@@ -1,6 +1,6 @@
 {
   "category": "Utilities",
-  "version": "1.2.0",
+  "version": "1.3.0",
 
   "_completedRetentionDays": "Days a completed item is kept before it is deleted. Any number, 0 deletes immediately.",
   "completedRetentionDays": 30,
